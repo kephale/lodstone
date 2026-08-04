@@ -111,6 +111,12 @@ This currently requires the `lodstone-integration` napari branch based on PR
 `examples/napari_ome_zarr.py` for a two-channel remote example. The core
 package still has no napari or Qt dependency.
 
+`examples/napari_zebrahub.py` opens one lazy timepoint from the public
+ZSNS001 Zebrahub light-sheet series in 3-D. Its approximately 32 MiB native
+chunks make it a useful stress test for cancellation, interaction holds, and
+GPU upload pacing. The example exposes `--tile-mib`, `--interval-mib`, and
+`--rate-mib` for tuning those constraints.
+
 ## Public concepts
 
 - **Source** — pyramid metadata and asynchronous regional reads.
