@@ -151,6 +151,8 @@ viewer thread before any updates for a pass; completion runs after refinement
 and stale-residency retirement. A plan exposes both its complete `desired`
 tile ladder and the cache-filtered `wanted` reads. Interactive viewers can
 call `stream.pause()` and `stream.resume()` without discarding the active pass.
+`bytes_per_second` can pace aggregate source reads when decoding or remote I/O
+would otherwise compete with interaction and rendering.
 
 The initial expected layouts are:
 

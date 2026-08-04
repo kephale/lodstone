@@ -43,10 +43,17 @@ class Stream:
         cpu_cache: int = 2 << 30,
         inflight: int = 256 << 20,
         batch_size: int = 8,
+        bytes_per_second: float | None = None,
     ) -> None:
-        if workers <= 0 or cpu_cache <= 0 or inflight <= 0 or batch_size <= 0:
+        if (
+            workers <= 0
+            or cpu_cache <= 0
+            or inflight <= 0
+            or batch_size <= 0
+            or (bytes_per_second is not None and bytes_per_second <= 0)
+        ):
             raise ValueError(
-                "workers, cache, inflight, and batch size must be positive"
+                "workers, cache, inflight, batch size, and rate must be positive"
             )
         self.source = source
         self.target = target
@@ -56,6 +63,7 @@ class Stream:
         self.cpu_cache_limit = cpu_cache
         self.inflight_limit = inflight
         self.batch_size = batch_size
+        self.bytes_per_second = bytes_per_second
 
         self._state_lock = threading.RLock()
         self._generation = 0
@@ -73,6 +81,8 @@ class Stream:
         self._active: Future[Any] | None = None
         self._read_semaphore: asyncio.Semaphore | None = None
         self._resume_event: asyncio.Event | None = None
+        self._rate_lock: asyncio.Lock | None = None
+        self._next_read_time = 0.0
         self._chunk_cache: OrderedDict[tuple[int, tuple[int, ...]], np.ndarray] = (
             OrderedDict()
         )
@@ -191,6 +201,7 @@ class Stream:
         asyncio.set_event_loop(self._loop)
         self._read_semaphore = asyncio.Semaphore(self.workers)
         self._resume_event = asyncio.Event()
+        self._rate_lock = asyncio.Lock()
         if not self._paused:
             self._resume_event.set()
         self._loop.run_forever()
@@ -386,6 +397,8 @@ class Stream:
         if self._read_semaphore is None:
             self._read_semaphore = asyncio.Semaphore(self.workers)
         async with self._read_semaphore:
+            await self._pace_read(Region(start, stop).size * level.dtype.itemsize)
+            await self._wait_until_resumed()
             array = np.asarray(await self.source.read(level_index, Region(start, stop)))
         expected = tuple(b - a for a, b in zip(start, stop, strict=True))
         if array.shape != expected:
@@ -519,3 +532,15 @@ class Stream:
             self._resume_event.set()
         else:
             self._resume_event.clear()
+
+    async def _pace_read(self, nbytes: int) -> None:
+        if self.bytes_per_second is None:
+            return
+        if self._rate_lock is None:
+            self._rate_lock = asyncio.Lock()
+        async with self._rate_lock:
+            now = self._loop.time()
+            scheduled = max(now, self._next_read_time)
+            self._next_read_time = scheduled + nbytes / self.bytes_per_second
+        if scheduled > now:
+            await asyncio.sleep(scheduled - now)
