@@ -45,6 +45,29 @@ def test_stream_squeezes_hidden_axes(ortho_view, wait) -> None:
         stream.close()
 
 
+def test_target_can_keep_hidden_axes(ortho_view, wait) -> None:
+    data = np.arange(2 * 8 * 8, dtype=np.uint16).reshape(2, 8, 8)
+    source = SimulatedSource([data], chunks=[(1, 4, 4)])
+    target = RecordingTarget(
+        Layout(kind="bricked", block_shape=(1, 4, 4), squeeze_hidden=False)
+    )
+    view = ortho_view(
+        data.shape,
+        displayed_axes=(1, 2),
+        index=(1, None, None),
+        viewport=(64, 64),
+    )
+    stream = Stream(source, target, planner=Planner(progressive=False))
+    try:
+        stream.update(view)
+        wait(lambda: stream.status.state == "complete")
+        assert target.updates
+        assert all(update.data.ndim == 3 for update in target.updates)
+        assert all(update.data.shape[0] == 1 for update in target.updates)
+    finally:
+        stream.close()
+
+
 def test_new_generation_rejects_stale_delivery(ortho_view, wait) -> None:
     data = np.stack([np.zeros((8, 8), dtype=np.uint8), np.ones((8, 8), dtype=np.uint8)])
     source = SimulatedSource([data], chunks=[(1, 4, 4)], latency=0.05)
@@ -116,6 +139,25 @@ def test_stream_waits_for_host_dispatch_before_completion(ortho_view) -> None:
         stream.close()
 
 
+def test_queued_host_delivery_is_harmless_after_close(ortho_view) -> None:
+    source = SimulatedSource([np.zeros((8, 8), dtype=np.uint8)], chunks=[(4, 4)])
+    target = RecordingTarget(Layout(block_shape=(4, 4)))
+    callbacks: Queue[Callable[[], None]] = Queue()
+    stream = Stream(
+        source,
+        target,
+        planner=Planner(progressive=False),
+        dispatch=callbacks.put,
+    )
+    stream.update(ortho_view((8, 8), viewport=(64, 64)))
+    callback = callbacks.get(timeout=2)
+
+    stream.close()
+    callback()
+
+    assert stream.status.state == "closed"
+
+
 def test_inflight_limit_bounds_delivered_batches(ortho_view, wait) -> None:
     class BatchRecordingTarget(RecordingTarget):
         def __init__(self) -> None:
@@ -163,5 +205,53 @@ def test_progressive_coarse_tiles_are_discarded_after_refinement(
         assert {key.level for key in stream.available} == {0}
         assert target.discarded
         assert {key.level for key in target.discarded} == {1}
+    finally:
+        stream.close()
+
+
+def test_pass_lifecycle_wraps_delivery(ortho_view, wait) -> None:
+    class ResidentTarget(RecordingTarget):
+        def __init__(self) -> None:
+            super().__init__(Layout(block_shape=(4, 4)))
+            self.events = []
+
+        def prepare(self, view, plan) -> None:
+            self.events.append(("prepare", plan.target_level, len(plan.desired)))
+
+        def apply(self, updates) -> None:
+            self.events.append(("apply", len(updates)))
+            super().apply(updates)
+
+        def complete(self, view, plan) -> None:
+            self.events.append(("complete", plan.target_level))
+
+    source = SimulatedSource([np.zeros((8, 8), dtype=np.uint8)], chunks=[(4, 4)])
+    target = ResidentTarget()
+    stream = Stream(source, target, planner=Planner(progressive=False))
+    try:
+        stream.update(ortho_view((8, 8), viewport=(64, 64)))
+        wait(lambda: stream.status.state == "complete")
+        assert target.events[0][0] == "prepare"
+        assert target.events[-1][0] == "complete"
+        assert any(event[0] == "apply" for event in target.events)
+    finally:
+        stream.close()
+
+
+def test_pause_holds_reads_until_resume(ortho_view, wait) -> None:
+    source = SimulatedSource([np.zeros((8, 8), dtype=np.uint8)], chunks=[(4, 4)])
+    target = RecordingTarget(Layout(block_shape=(4, 4)))
+    stream = Stream(source, target, planner=Planner(progressive=False))
+    try:
+        stream.pause()
+        stream.update(ortho_view((8, 8), viewport=(64, 64)))
+        time.sleep(0.05)
+        assert source.reads == []
+        assert target.updates == []
+
+        stream.resume()
+        wait(lambda: stream.status.state == "complete")
+        assert source.reads
+        assert target.updates
     finally:
         stream.close()

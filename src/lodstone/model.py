@@ -149,6 +149,7 @@ class Layout:
     block_shape: tuple[int, ...] | None = None
     mixed_lod: bool = False
     memory_limit: int = 1 << 30
+    squeeze_hidden: bool = True
 
     def __post_init__(self) -> None:
         if self.block_shape is not None and any(
@@ -184,11 +185,18 @@ class Tile:
 
 @dataclass(frozen=True, slots=True)
 class Plan:
-    """Ordered desired tiles and the target level chosen for the view."""
+    """A complete desired tile set and the reads needed to reach it.
+
+    ``desired`` includes every progressive ladder level for the current
+    pass, whether already available or newly requested. ``wanted`` is the
+    ordered subset that still needs to be read. ``retain`` describes target
+    residency after the pass completes.
+    """
 
     wanted: tuple[Tile, ...]
     retain: frozenset[TileKey]
     target_level: int
+    desired: tuple[Tile, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

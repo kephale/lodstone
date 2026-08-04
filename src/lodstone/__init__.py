@@ -16,11 +16,12 @@ from .model import (
 from .planner import Planner
 from .source import Source
 from .stream import Stream
-from .target import Target
+from .target import PassTarget, Target
 
 __all__ = [
     "Layout",
     "Level",
+    "PassTarget",
     "Plan",
     "Planner",
     "Pyramid",

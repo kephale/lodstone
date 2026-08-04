@@ -63,6 +63,7 @@ class Stream:
         self._available: set[TileKey] = set()
         self._status_callbacks: list[StatusCallback] = []
         self._closed = False
+        self._paused = False
 
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(
@@ -71,6 +72,7 @@ class Stream:
         self._thread.start()
         self._active: Future[Any] | None = None
         self._read_semaphore: asyncio.Semaphore | None = None
+        self._resume_event: asyncio.Event | None = None
         self._chunk_cache: OrderedDict[tuple[int, tuple[int, ...]], np.ndarray] = (
             OrderedDict()
         )
@@ -116,19 +118,34 @@ class Stream:
         self._set_status(
             Status(
                 generation=generation,
-                state="loading" if plan.wanted else "complete",
+                state="loading",
                 wanted=len(plan.wanted),
                 resident=len(available),
                 progress=0.0 if plan.wanted else 1.0,
             )
         )
-        if plan.wanted:
-            self._active = asyncio.run_coroutine_threadsafe(
-                self._execute(generation, view, plan), self._loop
-            )
-        else:
-            self._dispatch_redraw(generation)
+        self._active = asyncio.run_coroutine_threadsafe(
+            self._execute(generation, view, plan, layout), self._loop
+        )
         return plan
+
+    def pause(self) -> None:
+        """Pause new reads and target delivery without cancelling the pass."""
+
+        with self._state_lock:
+            if self._closed:
+                return
+            self._paused = True
+        self._loop.call_soon_threadsafe(self._set_resume_state, False)
+
+    def resume(self) -> None:
+        """Resume a pass paused during viewer interaction."""
+
+        with self._state_lock:
+            if self._closed:
+                return
+            self._paused = False
+        self._loop.call_soon_threadsafe(self._set_resume_state, True)
 
     def refresh(self) -> None:
         """Drop logical target residency so the next update reloads it."""
@@ -173,6 +190,9 @@ class Stream:
     def _run_loop(self) -> None:
         asyncio.set_event_loop(self._loop)
         self._read_semaphore = asyncio.Semaphore(self.workers)
+        self._resume_event = asyncio.Event()
+        if not self._paused:
+            self._resume_event.set()
         self._loop.run_forever()
         pending = asyncio.all_tasks(self._loop)
         for task in pending:
@@ -183,18 +203,23 @@ class Stream:
             )
         self._loop.close()
 
-    async def _execute(self, generation: int, view: View, plan: Plan) -> None:
+    async def _execute(
+        self, generation: int, view: View, plan: Plan, layout: Any
+    ) -> None:
         completed = 0
         bytes_read = 0
         try:
+            await self._wait_until_resumed()
+            await self._deliver_prepare(generation, view, plan)
             phases = sorted({tile.phase for tile in plan.wanted})
             for phase in phases:
                 phase_tiles = [tile for tile in plan.wanted if tile.phase == phase]
                 for window in self._tile_windows(phase_tiles):
+                    await self._wait_until_resumed()
                     if not self._is_current(generation):
                         return
                     results = await asyncio.gather(
-                        *(self._tile_update(tile, view) for tile in window)
+                        *(self._tile_update(tile, view, layout) for tile in window)
                     )
                     if not self._is_current(generation):
                         return
@@ -218,6 +243,7 @@ class Stream:
             stale = self.available - plan.retain
             if stale:
                 await self._deliver_discard(generation, stale)
+            await self._deliver_complete(generation, view, plan)
             await self._deliver_redraw(generation)
             self._set_status(
                 Status(
@@ -269,13 +295,15 @@ class Stream:
             windows.append(current)
         return windows
 
-    async def _tile_update(self, tile: Tile, view: View) -> Update:
+    async def _tile_update(self, tile: Tile, view: View, layout: Any) -> Update:
+        await self._wait_until_resumed()
         data = await self._read_region(tile.level, tile.region)
-        hidden = tuple(
-            axis for axis, value in enumerate(view.index) if value is not None
-        )
-        if hidden:
-            data = np.squeeze(data, axis=hidden)
+        if layout.squeeze_hidden:
+            hidden = tuple(
+                axis for axis, value in enumerate(view.index) if value is not None
+            )
+            if hidden:
+                data = np.squeeze(data, axis=hidden)
         transform = self.source.pyramid.levels[tile.level].voxel_to_world
         return Update(tile.key, tile.region, data, transform)
 
@@ -388,6 +416,28 @@ class Stream:
 
         await self._run_on_target(apply)
 
+    async def _deliver_prepare(self, generation: int, view: View, plan: Plan) -> None:
+        prepare = getattr(self.target, "prepare", None)
+        if prepare is None:
+            return
+
+        def run() -> None:
+            if self._is_current(generation):
+                prepare(view, plan)
+
+        await self._run_on_target(run)
+
+    async def _deliver_complete(self, generation: int, view: View, plan: Plan) -> None:
+        complete = getattr(self.target, "complete", None)
+        if complete is None:
+            return
+
+        def run() -> None:
+            if self._is_current(generation):
+                complete(view, plan)
+
+        await self._run_on_target(run)
+
     async def _deliver_discard(
         self, generation: int, keys: Collection[TileKey]
     ) -> None:
@@ -421,12 +471,16 @@ class Stream:
                 completed.set_exception(error)
 
         def run() -> None:
+            if self._loop.is_closed():
+                return
             try:
                 callback()
             except Exception as error:  # noqa: BLE001 - adapter boundary
-                self._loop.call_soon_threadsafe(resolve, error)
+                if not self._loop.is_closed():
+                    self._loop.call_soon_threadsafe(resolve, error)
             else:
-                self._loop.call_soon_threadsafe(resolve)
+                if not self._loop.is_closed():
+                    self._loop.call_soon_threadsafe(resolve)
 
         self.dispatch(run)
         await completed
@@ -450,3 +504,18 @@ class Stream:
     def _is_current(self, generation: int) -> bool:
         with self._state_lock:
             return generation == self._generation and not self._closed
+
+    async def _wait_until_resumed(self) -> None:
+        if self._resume_event is None:
+            self._resume_event = asyncio.Event()
+            if not self._paused:
+                self._resume_event.set()
+        await self._resume_event.wait()
+
+    def _set_resume_state(self, resumed: bool) -> None:
+        if self._resume_event is None:
+            return
+        if resumed:
+            self._resume_event.set()
+        else:
+            self._resume_event.clear()

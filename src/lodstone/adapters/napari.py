@@ -78,15 +78,15 @@ class _SlicedArray:
 
 def _progressive_image_factory():
     try:
-        from napari.experimental._progressive_loading import (  # pyright: ignore[reportMissingImports]
-            add_progressive_loading_image,
+        from napari.experimental._lodstone_loading import (  # pyright: ignore[reportMissingImports]
+            add_lodstone_loading_image,
         )
     except (ImportError, ModuleNotFoundError) as error:
         raise RuntimeError(
             "the Lodstone napari adapter requires napari's progressive-loading "
             "implementation (napari PR #9067)"
         ) from error
-    return add_progressive_loading_image
+    return add_lodstone_loading_image
 
 
 def _layer_affine(source: Source, fixed_index: Mapping[int, int]) -> np.ndarray:

@@ -106,7 +106,8 @@ napari.run()
 controller.close()
 ```
 
-This currently requires a napari build containing PR #9067. Run
+This currently requires the `lodstone-integration` napari branch based on PR
+#9067. Run
 `examples/napari_ome_zarr.py` for a two-channel remote example. The core
 package still has no napari or Qt dependency.
 
@@ -143,6 +144,13 @@ class Target:
     def discard(self, keys) -> None: ...
     def redraw(self) -> None: ...
 ```
+
+Targets with bounded resident windows may additionally implement
+`prepare(view, plan)` and `complete(view, plan)`. Preparation runs on the
+viewer thread before any updates for a pass; completion runs after refinement
+and stale-residency retirement. A plan exposes both its complete `desired`
+tile ladder and the cache-filtered `wanted` reads. Interactive viewers can
+call `stream.pause()` and `stream.resume()` without discarding the active pass.
 
 The initial expected layouts are:
 

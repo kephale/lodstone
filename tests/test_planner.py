@@ -50,9 +50,11 @@ def test_progressive_plan_puts_coarse_coverage_first(ortho_view) -> None:
     )
     levels = [tile.level for tile in plan.wanted]
     first_fine = levels.index(0)
-    assert set(levels[:first_fine]) == {2}
+    assert set(levels[:first_fine]) == {1, 2}
+    assert levels == sorted(levels, reverse=True)
     assert set(levels[first_fine:]) == {0}
     assert {key.level for key in plan.retain} == {0}
+    assert {tile.level for tile in plan.desired} == {0, 1, 2}
 
 
 def test_gpu_budget_can_select_a_coarser_level(ortho_view) -> None:
@@ -80,6 +82,27 @@ def test_available_tiles_are_retained_but_not_requested(ortho_view) -> None:
     )
     assert available <= updated.retain
     assert available.isdisjoint(tile.key for tile in updated.wanted)
+    assert available <= {tile.key for tile in updated.desired}
+
+
+def test_3d_tiles_are_prioritized_front_to_back(ortho_view) -> None:
+    source = ArrayPyramidSource(
+        [np.zeros((16, 16, 16), dtype=np.uint8)],
+        axes=("z", "y", "x"),
+        chunks=[(16, 16, 4)],
+    )
+    view = ortho_view(
+        source.pyramid.levels[0].shape,
+        displayed_axes=(0, 1, 2),
+        viewport=(256, 256),
+    )
+    plan = Planner(progressive=False).plan(
+        source.pyramid,
+        view,
+        Layout(kind="bricked", block_shape=(16, 16, 4)),
+    )
+
+    assert [tile.region.start[2] for tile in plan.wanted] == [0, 4, 8, 12]
 
 
 def test_hidden_selection_is_part_of_tile_identity(ortho_view) -> None:

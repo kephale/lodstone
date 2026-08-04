@@ -44,19 +44,27 @@ class Planner:
                 break
             target_level += 1
         levels = [target_level]
-        if self.progressive and target_level != len(pyramid.levels) - 1:
-            levels.insert(0, len(pyramid.levels) - 1)
+        if self.progressive:
+            levels = list(range(len(pyramid.levels) - 1, target_level - 1, -1))
 
         wanted: list[Tile] = []
+        desired: list[Tile] = []
         retain: set[TileKey] = set()
         for phase, level_index in enumerate(levels):
             tiles = self._tiles_for_level(pyramid, view, layout, level_index, phase)
+            desired.extend(tiles)
             if level_index == target_level:
                 retain.update(tile.key for tile in tiles)
             wanted.extend(tile for tile in tiles if tile.key not in available)
 
         wanted.sort(key=lambda tile: (tile.phase, tile.priority))
-        return Plan(tuple(wanted), frozenset(retain), target_level)
+        desired.sort(key=lambda tile: (tile.phase, tile.priority))
+        return Plan(
+            tuple(wanted),
+            frozenset(retain),
+            target_level,
+            tuple(desired),
+        )
 
     def _validate(self, pyramid: Pyramid, view: View, layout: Layout) -> None:
         if len(view.index) != pyramid.ndim:
@@ -119,7 +127,7 @@ class Planner:
             if not projected.visible:
                 continue
             key = TileKey(level_index, tuple(grid_index), selection)
-            result.append(Tile(key, region, projected.center_distance, phase))
+            result.append(Tile(key, region, projected.priority, phase))
 
         return result
 
@@ -209,11 +217,11 @@ def _voxel_footprint_px(
 
 
 class _Projection:
-    __slots__ = ("center_distance", "visible")
+    __slots__ = ("priority", "visible")
 
-    def __init__(self, visible: bool, center_distance: float) -> None:
+    def __init__(self, visible: bool, priority: float) -> None:
         self.visible = visible
-        self.center_distance = center_distance
+        self.priority = priority
 
 
 def _project_region(matrix: np.ndarray, region: Region, view: View) -> _Projection:
@@ -236,10 +244,14 @@ def _project_region(matrix: np.ndarray, region: Region, view: View) -> _Projecti
     visible = bool(
         np.all(np.max(clip, axis=0) >= -1.0) and np.all(np.min(clip, axis=0) <= 1.0)
     )
-    if view.eye is not None and len(view.displayed_axes) == 3:
-        center = np.mean(local[finite], axis=0)
-        delta = center - np.asarray(view.eye)
+    center = np.mean(clip[:, :2], axis=0)
+    center_distance = float(np.dot(center, center))
+    if len(view.displayed_axes) == 3:
+        # OpenGL NDC depth runs near-to-far from -1 to +1. Depth dominates
+        # the center-distance tie breaker, yielding front-to-back delivery
+        # while keeping chunks on a similar plane center-first.
+        depth = float(np.min(clip[:, 2]))
+        priority = depth * 1_000_000.0 + center_distance
     else:
-        center = np.mean(clip[:, :2], axis=0)
-        delta = center
-    return _Projection(visible, float(np.dot(delta, delta)))
+        priority = center_distance
+    return _Projection(visible, priority)
