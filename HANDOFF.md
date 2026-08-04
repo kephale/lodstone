@@ -8,9 +8,11 @@ Last updated: 2026-08-04
 
 - Repository: `https://github.com/kephale/lodstone`
 - Local checkout: `/Users/kharrington/git/uermel/lodstone`
-- Branch: `main`, clean and synchronized with `origin/main`
-- Current commit: `38ac773` (`feat: add Zebrahub napari stress test`)
+- Branch: `main`, synchronized with `origin/main` before this handoff update
+- Latest implementation commit: `f001e3f` (`feat: add bounded resident array windows`)
 - Important preceding commits:
+  - `06de99c`: development handoff
+  - `38ac773`: Zebrahub napari stress test
   - `cf917d0`: aggregate source-read pacing
   - `f8bb9b6`: resident pass lifecycle, pause/resume, complete LOD ladders,
     and 3-D front-to-back priority
@@ -24,18 +26,18 @@ Last updated: 2026-08-04
 - Original PR branch: `progressive-loading-rebase`; it was not modified.
 - Integration branch: `lodstone-integration`, clean and pushed to
   `origin/lodstone-integration`
-- Integration commit: `965a30a2`
+- Integration commit: `c8385ae1` (`feat: move progressive planning to Lodstone`)
 - The integration branch is based directly on the current PR branch head,
   `07e4f3fc`.
 
 ### chimerax-ome-zarr
 
 - Local checkout: `/Users/kharrington/git/uermel/chimerax-ome-zarr`
-- Branch: `main`, clean and one commit ahead of `origin/main`
-- Local commit: `8e0bd70` (`feat: add Lodstone streaming adapter`)
-- This commit has not been pushed.
-- Its streaming extra pins Lodstone commit `cf917d0`; updating the pin to a
-  later Lodstone commit is safe when the adapter next changes.
+- Branch: `main`, clean and two commits ahead of `origin/main`
+- Latest local commit: `f5934f0` (`feat: bound Lodstone volume residency`)
+- Preceding local commit: `8e0bd70` (`feat: add Lodstone streaming adapter`)
+- These commits have not been pushed.
+- Its streaming extra pins Lodstone commit `f001e3f`.
 
 ## Current architecture
 
@@ -82,17 +84,22 @@ from napari PR #9067:
 - GLIR upload metering;
 - interaction quality changes and renderer event handling.
 
-The `lodstone-integration` branch replaces the PR's pass execution with
-Lodstone. Lodstone now performs chunk reads, decoded caching, batching,
-cancellation, stale-pass rejection, rate limiting, and interaction pause.
-Arriving updates are written into `VirtualData` and then passed through the
-PR's existing `_on_chunks` texture path.
+The `lodstone-integration` branch replaces the PR's pass planning and execution
+with Lodstone. A real 2-D/3-D camera, viewport, hidden-axis selection, and
+per-level napari world transforms are captured as a Lodstone `View` and
+`Pyramid`. Lodstone now chooses the target level, visible chunks, complete
+coarse ladder, and delivery order, and performs chunk reads, decoded caching,
+batching, cancellation, stale-pass rejection, rate limiting, and interaction
+pause. Arriving updates are written into `VirtualData` and then passed through
+the PR's existing `_on_chunks` texture path.
 
-The PR still constructs the pass. Its level selection, viewport interval,
-chunk queue, coarse ladder, and napari-specific priority are converted into a
-Lodstone `Plan` by `_PassPlanner`. Therefore the next major convergence task is
-to make napari produce a real Lodstone `View`, compare Lodstone plans against
-the PR plans, and then transfer planning authority without changing rendering.
+The PR still owns bounded resident intervals, coarsest resident-worker reads,
+backdrops, texture patching, double buffering, and presentation. Its former
+plan is reconstructed as a comparison trace. Current fixtures agree on target
+level, desired geometry, ladder phases, and cache-filtered `wanted` geometry
+for centered and moved 2-D views, centered and rotated 3-D views, an
+intermediate 3-D LOD, and a nonzero hidden-axis step. Exact trace ordering can
+differ for symmetric priority ties; Lodstone's order is authoritative.
 
 The public Lodstone adapter entry point is `NapariController`; it calls
 `napari.experimental._lodstone_loading.add_lodstone_loading_image`. It requires
@@ -106,13 +113,18 @@ captures the ChimeraX camera on graphics updates, lets Lodstone choose levels
 and chunks, dispatches target work back to the graphics thread, and updates
 multichannel ChimeraX volume models.
 
-Current limitation: each visited level receives a dense CPU `ArrayGridData`
-buffer. Only requested source chunks are read, but CPU allocation is still for
-the complete spatial level and `values_changed()` may cause broad texture
-work. The next ChimeraX task is a bounded resident grid/volume target followed
-by investigation of the smallest monkey-patch seam for partial texture
-updates. Do not redesign the shared planner for this; the pass lifecycle now
-has the required resident-window hooks.
+ChimeraX now uses Lodstone's reusable `ResidentArrays` helper. `prepare()`
+stages full-ND bounding windows for the desired ladder, overlap is preserved
+across camera moves, `apply()` performs window-relative writes, and
+`complete()` keeps the target window while retiring coarse or replaced
+volumes. Grid origins include each window offset. The pre-plan camera-bounds
+placeholder is only two samples per spatial axis rather than a dense coarsest
+level.
+
+Current limitation: `ArrayGridData.values_changed()` may still cause broad
+texture work even though CPU allocation is bounded. The next ChimeraX task is
+investigation of the smallest Python monkey-patch seam for partial texture
+updates. Do not redesign the shared planner for this.
 
 ## Validated data and commands
 
@@ -156,7 +168,8 @@ Useful options:
 
 Timepoint 400 was validated remotely in 3-D with the default 64 MiB tile and
 512 MiB interval budgets. The `/tmp` screenshots are ephemeral and are not
-part of either repository.
+part of either repository. It was revalidated with Lodstone planning authority
+after the current napari changes using a 90-second automated capture.
 
 ### EBI IDR
 
@@ -164,14 +177,16 @@ part of either repository.
 
 `https://livingobjects.ebi.ac.uk/idr/zarr/v0.4/idr0062A/6001240.zarr`
 
-Both 2-D and 3-D, two-channel rendering were validated through Lodstone.
+Both 2-D and 3-D, two-channel rendering were validated through Lodstone. They
+were revalidated after transferring planning authority on 2026-08-04 with
+30-second remote screenshot runs; the resulting `/tmp` images are ephemeral.
 
 ## Last successful checks
 
 Lodstone:
 
 ```bash
-uv run pytest -q                 # 29 passed
+uv run pytest -q                 # 34 passed
 uv run ruff check src tests examples
 uv run pyright src
 uv build
@@ -184,7 +199,7 @@ PYTHONPATH="/Users/kharrington/git/uermel/lodstone/src:$PWD" \
   .venv/bin/python -m pytest -q \
   src/napari/experimental/_tests/test_lodstone_loading.py \
   src/napari/experimental/_tests/test_progressive_loading.py
-# 79 passed
+# 86 passed
 ```
 
 ChimeraX portable:
@@ -202,12 +217,11 @@ ChimeraX native:
 PYTHONPATH="/Users/kharrington/git/uermel/lodstone/src:$PWD" \
   /Applications/ChimeraX_Daily.app/Contents/bin/python3.14 \
   -m pytest -q tests/chimerax
-# 66 passed; existing ChimeraX teardown warnings remain
+# 67 passed; existing ChimeraX teardown warnings remain
 ```
 
 ## Known limitations
 
-- Napari planning is not yet shared; only execution is shared.
 - The napari Lodstone factory currently supports Image, not Labels.
 - Fixed axes are chosen when a napari layer is constructed. Zebrahub time is
   not yet a live napari slider backed by pass cancellation.
@@ -216,21 +230,15 @@ PYTHONPATH="/Users/kharrington/git/uermel/lodstone/src:$PWD" \
   through `ArrayPyramidSource` needs a richer shared chunk-grid model.
 - Lodstone rate limiting governs source reads, not the renderer's independently
   metered GPU upload queue.
-- ChimeraX still allocates dense per-level CPU buffers and does not issue
-  explicit per-chunk GL texture updates.
+- ChimeraX does not yet issue explicit per-chunk GL texture updates;
+  `values_changed()` can invalidate the full resident window.
 - Blender/MicroscopyNodes and ndv adapters have not yet been implemented.
 
 ## Recommended next work
 
-1. Capture a real 2-D/3-D napari camera as a Lodstone `View` and build a plan
-   trace comparison harness against the PR loader.
-2. Move napari level/interval/chunk planning to Lodstone once traces agree;
-   retain every PR renderer and interaction feature.
-3. Add a reusable bounded-resident target helper based on `prepare`, `apply`,
-   and `complete`; use it for ChimeraX and later Blender/ndv adapters.
-4. Explore ChimeraX's `Texture3d`/volume drawing update path to determine
+1. Explore ChimeraX's `Texture3d`/volume drawing update path to determine
    whether partial uploads can be monkey-patched entirely in Python.
-5. Implement the Blender/MicroscopyNodes adapter, then ndv, using the same plan
+2. Implement the Blender/MicroscopyNodes adapter, then ndv, using the same plan
    trace fixtures.
-6. Extend the shared chunk-grid metadata for rectilinear chunks and add mutable
+3. Extend the shared chunk-grid metadata for rectilinear chunks and add mutable
    fixed-axis selection for large time series such as Zebrahub.
