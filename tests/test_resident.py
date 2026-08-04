@@ -1,0 +1,142 @@
+from __future__ import annotations
+
+import numpy as np
+
+from lodstone import (
+    Plan,
+    Region,
+    ResidentArrays,
+    Tile,
+    TileKey,
+    Update,
+)
+from lodstone.sources import ArrayPyramidSource
+
+
+def _tile(level: int, start: tuple[int, ...], stop: tuple[int, ...], phase=0):
+    key = TileKey(level, start, ())
+    return Tile(key, Region(start, stop), 0.0, phase)
+
+
+def _plan(*tiles: Tile, target: int = 0) -> Plan:
+    return Plan(tuple(tiles), frozenset(tile.key for tile in tiles), target, tiles)
+
+
+def test_prepare_allocates_only_desired_bounds() -> None:
+    source = ArrayPyramidSource(
+        [np.zeros((100, 100), dtype=np.uint16)], chunks=[(10, 10)]
+    )
+    arrays = ResidentArrays(source.pyramid)
+    plan = _plan(
+        _tile(0, (20, 30), (30, 40)),
+        _tile(0, (30, 40), (40, 50)),
+    )
+
+    transition = arrays.prepare(plan)
+    window = arrays.windows[0]
+
+    assert transition.prepared == (window,)
+    assert window.region == Region((20, 30), (40, 50))
+    assert window.data.shape == (20, 20)
+    assert arrays.nbytes == 20 * 20 * 2
+
+
+def test_apply_uses_window_relative_coordinates() -> None:
+    source = ArrayPyramidSource(
+        [np.zeros((100, 100), dtype=np.uint16)], chunks=[(10, 10)]
+    )
+    arrays = ResidentArrays(source.pyramid)
+    tile = _tile(0, (20, 30), (30, 40))
+    plan = _plan(tile)
+    arrays.prepare(plan)
+    update = Update(
+        tile.key,
+        tile.region,
+        np.full((10, 10), 7, dtype=np.uint16),
+        np.eye(3),
+    )
+
+    changes = arrays.apply([update])
+
+    assert len(changes) == 1
+    assert changes[0].updates == (update,)
+    assert np.all(arrays.windows[0].data == 7)
+
+
+def test_shifted_window_preserves_overlap_and_loaded_keys() -> None:
+    source = ArrayPyramidSource(
+        [np.zeros((100, 100), dtype=np.uint8)], chunks=[(10, 10)]
+    )
+    arrays = ResidentArrays(source.pyramid)
+    first = _tile(0, (20, 20), (40, 40))
+    first_plan = _plan(first)
+    arrays.prepare(first_plan)
+    arrays.apply(
+        [Update(first.key, first.region, np.ones((20, 20), np.uint8), np.eye(3))]
+    )
+    arrays.complete(first_plan)
+
+    second = _tile(0, (30, 30), (50, 50))
+    transition = arrays.prepare(_plan(second))
+    shifted = arrays.windows[0]
+
+    assert len(transition.prepared) == 1
+    assert np.all(shifted.data[:10, :10] == 1)
+    assert np.all(shifted.data[10:, :] == 0)
+    assert first.key not in shifted.key_regions
+
+
+def test_complete_keeps_target_and_retires_coarse_ladder() -> None:
+    source = ArrayPyramidSource(
+        [
+            np.zeros((32, 32), dtype=np.uint8),
+            np.zeros((16, 16), dtype=np.uint8),
+        ],
+        chunks=[(8, 8), (8, 8)],
+    )
+    arrays = ResidentArrays(source.pyramid)
+    coarse = _tile(1, (0, 0), (16, 16), phase=0)
+    fine = _tile(0, (8, 8), (24, 24), phase=1)
+    plan = _plan(coarse, fine)
+
+    arrays.prepare(plan)
+    coarse_window = arrays.windows[1]
+    fine_window = arrays.windows[0]
+    transition = arrays.complete(plan)
+
+    assert arrays.active == {0: fine_window}
+    assert transition.retired == (coarse_window,)
+    assert arrays.nbytes == fine_window.nbytes
+
+
+def test_full_nd_hidden_axis_updates_are_required() -> None:
+    source = ArrayPyramidSource(
+        [np.zeros((4, 20, 20), dtype=np.uint8)], chunks=[(1, 10, 10)]
+    )
+    arrays = ResidentArrays(source.pyramid)
+    tile = _tile(0, (2, 0, 0), (3, 10, 10))
+    arrays.prepare(_plan(tile))
+
+    arrays.apply(
+        [
+            Update(
+                tile.key,
+                tile.region,
+                np.ones((1, 10, 10), dtype=np.uint8),
+                np.eye(4),
+            )
+        ]
+    )
+    assert arrays.windows[0].data.shape == (1, 10, 10)
+
+    with np.testing.assert_raises_regex(ValueError, "unsqueezed"):
+        arrays.apply(
+            [
+                Update(
+                    tile.key,
+                    tile.region,
+                    np.ones((10, 10), dtype=np.uint8),
+                    np.eye(4),
+                )
+            ]
+        )

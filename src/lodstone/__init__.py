@@ -14,6 +14,12 @@ from .model import (
     identity_transform,
 )
 from .planner import Planner
+from .resident import (
+    ResidentArrays,
+    ResidentChange,
+    ResidentTransition,
+    ResidentWindow,
+)
 from .source import Source
 from .stream import Stream
 from .target import PassTarget, Target
@@ -26,6 +32,10 @@ __all__ = [
     "Planner",
     "Pyramid",
     "Region",
+    "ResidentArrays",
+    "ResidentChange",
+    "ResidentTransition",
+    "ResidentWindow",
     "Source",
     "Status",
     "Stream",

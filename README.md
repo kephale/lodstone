@@ -163,6 +163,36 @@ call `stream.pause()` and `stream.resume()` without discarding the active pass.
 `bytes_per_second` can pace aggregate source reads when decoding or remote I/O
 would otherwise compete with interaction and rendering.
 
+Dense targets can use `ResidentArrays` to avoid allocating complete pyramid
+levels. It stages one full-ND bounding window per desired level, preserves
+overlapping content when the camera moves, translates absolute updates into
+window-relative writes, and retires coarse/replaced storage on completion.
+The viewer still owns the corresponding grid, texture, or volume objects:
+
+```python
+from lodstone import Layout, ResidentArrays
+
+resident = ResidentArrays(source.pyramid)
+
+def layout(view, pyramid):
+    return Layout(kind="dense", memory_limit=512 * 1024**2,
+                  squeeze_hidden=False)
+
+def prepare(view, plan):
+    transition = resident.prepare(plan)
+    # Create renderer resources for transition.prepared and remove
+    # transition.retired resources.
+
+def apply(updates):
+    for change in resident.apply(updates):
+        # Patch or invalidate the renderer resource for change.window.
+        pass
+
+def complete(view, plan):
+    transition = resident.complete(plan)
+    # Present resident.active[plan.target_level] and retire old resources.
+```
+
 The initial expected layouts are:
 
 | Client | Typical layout |
