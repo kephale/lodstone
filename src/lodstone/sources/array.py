@@ -56,6 +56,19 @@ class ArrayPyramidSource:
     def pyramid(self) -> Pyramid:
         return self._pyramid
 
+    @property
+    def arrays(self) -> tuple[Any, ...]:
+        """Lazy array levels, ordered finest to coarsest.
+
+        Viewer adapters that can consume the storage arrays directly should
+        use this property instead of routing reads through ``read``.  In
+        particular, napari's progressive renderer needs the array metadata
+        and indexing protocol in order to manage its bounded resident
+        intervals and partial texture uploads.
+        """
+
+        return self._arrays
+
     async def read(self, level: int, region: Region) -> np.ndarray:
         array = self._arrays[level]
 

@@ -86,6 +86,30 @@ stream = Stream(
 )
 ```
 
+## napari adapter
+
+The optional adapter uses the rendering architecture from napari PR #9067: a
+single multiscale layer backed by bounded resident intervals, camera-selected
+2-D or 3-D tiles, and partial GPU texture uploads. It passes the source's
+original lazy arrays through, so Zarr data is not materialized into dense
+NumPy levels:
+
+```python
+import napari
+from lodstone.adapters.napari import NapariController
+from lodstone.sources import OMEZarrSource
+
+source = OMEZarrSource.open("https://example.org/image.zarr")
+viewer = napari.Viewer()
+controller = NapariController(viewer, source, fixed_index={0: 0})
+napari.run()
+controller.close()
+```
+
+This currently requires a napari build containing PR #9067. Run
+`examples/napari_ome_zarr.py` for a two-channel remote example. The core
+package still has no napari or Qt dependency.
+
 ## Public concepts
 
 - **Source** — pyramid metadata and asynchronous regional reads.
@@ -144,4 +168,3 @@ uv run --group dev pyright src
 The test suite is network-independent. Remote opening and reading has also
 been checked against the EBI IDR OME-Zarr v0.4 store used by
 `chimerax-ome-zarr`.
-
