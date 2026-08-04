@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lodstone"
+version = "0.1.0a0"
+description = "Renderer-neutral multiscale chunk planning and streaming"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Kyle I S Harrington" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Typing :: Typed",
+]
+dependencies = ["numpy>=1.26"]
+
+[project.optional-dependencies]
+zarr = ["zarr>=3"]
+ome-zarr = ["zarr>=3", "fsspec>=2024.2", "aiohttp>=3.10"]
+test = ["pytest>=8", "zarr>=3"]
+
+[dependency-groups]
+dev = ["pyright>=1.1", "ruff>=0.12"]
+
+[project.urls]
+Repository = "https://github.com/kephale/lodstone"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lodstone"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
