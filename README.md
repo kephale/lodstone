@@ -8,6 +8,9 @@ It is intended to be shared by clients such as ChimeraX, Blender, napari, and
 ndv. Lodstone does not create windows, textures, shaders, layers, or viewer
 models.
 
+Current cross-repository development state and resume instructions are kept in
+[`HANDOFF.md`](HANDOFF.md).
+
 ```text
 Source + View + Target
           │
