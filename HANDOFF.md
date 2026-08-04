@@ -33,9 +33,11 @@ Last updated: 2026-08-04
 ### chimerax-ome-zarr
 
 - Local checkout: `/Users/kharrington/git/uermel/chimerax-ome-zarr`
-- Branch: `main`, clean and two commits ahead of `origin/main`
-- Latest local commit: `f5934f0` (`feat: bound Lodstone volume residency`)
-- Preceding local commit: `8e0bd70` (`feat: add Lodstone streaming adapter`)
+- Branch: `main`, clean and three commits ahead of `origin/main`
+- Latest local commit: `f6b096a` (`feat: patch resident ChimeraX textures`)
+- Preceding local commits:
+  - `f5934f0` (`feat: bound Lodstone volume residency`)
+  - `8e0bd70` (`feat: add Lodstone streaming adapter`)
 - These commits have not been pushed.
 - Its streaming extra pins Lodstone commit `f001e3f`.
 
@@ -121,10 +123,16 @@ volumes. Grid origins include each window offset. The pre-plan camera-bounds
 placeholder is only two samples per spatial axis rather than a dense coarsest
 level.
 
-Current limitation: `ArrayGridData.values_changed()` may still cause broad
-texture work even though CPU allocation is bounded. The next ChimeraX task is
-investigation of the smallest Python monkey-patch seam for partial texture
-updates. Do not redesign the shared planner for this.
+Streaming volumes use ChimeraX's GPU colormap path. Once a scalar 3-D texture
+has been initialized, each Lodstone batch is uploaded with `glTexSubImage3D`
+at its resident-window-relative offset without calling
+`ArrayGridData.values_changed()` or destroying the drawing. Single-plane,
+blended, uninitialized, and shape/dtype-mismatched textures conservatively use
+the existing full-refresh path.
+
+The texture patch is intentionally isolated in the ChimeraX adapter. Lodstone
+still owns renderer-neutral planning and residency while ChimeraX owns OpenGL
+context selection, texture validation, and upload.
 
 ## Validated data and commands
 
@@ -217,8 +225,15 @@ ChimeraX native:
 PYTHONPATH="/Users/kharrington/git/uermel/lodstone/src:$PWD" \
   /Applications/ChimeraX_Daily.app/Contents/bin/python3.14 \
   -m pytest -q tests/chimerax
-# 67 passed; existing ChimeraX teardown warnings remain
+# 68 passed; existing ChimeraX teardown warnings remain
 ```
+
+The development bundle was also installed into ChimeraX Daily and rendered
+the two-channel EBI IDR volume above through Lodstone for 30 seconds using the
+normal macOS graphics backend. The resulting screenshot was visually valid;
+it is ephemeral and not part of the repository. ChimeraX's macOS
+`--offscreen` mode could not be used because that distribution has no OSMesa
+library.
 
 ## Known limitations
 
@@ -230,15 +245,15 @@ PYTHONPATH="/Users/kharrington/git/uermel/lodstone/src:$PWD" \
   through `ArrayPyramidSource` needs a richer shared chunk-grid model.
 - Lodstone rate limiting governs source reads, not the renderer's independently
   metered GPU upload queue.
-- ChimeraX does not yet issue explicit per-chunk GL texture updates;
-  `values_changed()` can invalidate the full resident window.
+- ChimeraX's Lodstone texture uploads do not yet have a renderer-side byte
+  meter or queue comparable to napari PR #9067's GLIR upload metering.
 - Blender/MicroscopyNodes and ndv adapters have not yet been implemented.
 
 ## Recommended next work
 
-1. Explore ChimeraX's `Texture3d`/volume drawing update path to determine
-   whether partial uploads can be monkey-patched entirely in Python.
-2. Implement the Blender/MicroscopyNodes adapter, then ndv, using the same plan
+1. Implement the Blender/MicroscopyNodes adapter, then ndv, using the same plan
    trace fixtures.
-3. Extend the shared chunk-grid metadata for rectilinear chunks and add mutable
+2. Extend the shared chunk-grid metadata for rectilinear chunks and add mutable
    fixed-axis selection for large time series such as Zebrahub.
+3. Add renderer-side upload byte metering if ChimeraX needs stronger frame-time
+   control for very large resident windows.
