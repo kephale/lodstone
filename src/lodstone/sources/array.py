@@ -20,9 +20,7 @@ class ArrayPyramidSource:
         *,
         axes: Sequence[str] | None = None,
         transforms: Sequence[np.ndarray] | None = None,
-        chunks: Sequence[
-            tuple[int, ...] | tuple[tuple[int, ...], ...]
-        ] | None = None,
+        chunks: Sequence[tuple[int, ...] | tuple[tuple[int, ...], ...]] | None = None,
     ) -> None:
         if not levels:
             raise ValueError("at least one array level is required")
@@ -51,15 +49,11 @@ class ArrayPyramidSource:
             if native and isinstance(native[0], tuple):
                 chunk_grid = tuple(
                     tuple(int(value) for value in axis_chunks)
-                    for axis_chunks in cast(
-                        Sequence[Sequence[int]], native
-                    )
+                    for axis_chunks in cast(Sequence[Sequence[int]], native)
                 )
                 chunk_shape = tuple(axis_chunks[0] for axis_chunks in chunk_grid)
             else:
-                chunk_shape = tuple(
-                    int(value) for value in cast(Sequence[int], native)
-                )
+                chunk_shape = tuple(int(value) for value in cast(Sequence[int], native))
             fill_value = getattr(array, "fill_value", 0)
             if fill_value is None:
                 fill_value = 0

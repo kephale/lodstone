@@ -169,8 +169,7 @@ def add_lodstone_labels(
             "array levels through an 'arrays' property"
         )
     if any(
-        not np.issubdtype(level.dtype, np.integer)
-        for level in source.pyramid.levels
+        not np.issubdtype(level.dtype, np.integer) for level in source.pyramid.levels
     ):
         raise TypeError("napari Labels sources must have integer dtype")
     fixed = dict(fixed_index or {})
@@ -206,9 +205,7 @@ class NapariController:
         self.source = source
         if layer_type not in ("image", "labels"):
             raise ValueError("layer_type must be 'image' or 'labels'")
-        factory = (
-            add_lodstone_image if layer_type == "image" else add_lodstone_labels
-        )
+        factory = add_lodstone_image if layer_type == "image" else add_lodstone_labels
         self.layer = factory(
             source,
             viewer,

@@ -78,7 +78,10 @@ class Level:
             normalized_grid = tuple(
                 tuple(int(value) for value in axis) for axis in grid
             )
-            if any(not axis or any(value <= 0 for value in axis) for axis in normalized_grid):
+            if any(
+                not axis or any(value <= 0 for value in axis)
+                for axis in normalized_grid
+            ):
                 raise ValueError("chunk grid dimensions must be non-empty and positive")
             if any(
                 sum(axis) != size

@@ -425,8 +425,7 @@ class Stream:
     ) -> np.ndarray:
         level = self.source.pyramid.levels[level_index]
         bounds = tuple(
-            level.chunk_bounds(axis, chunk_index[axis])
-            for axis in range(level.ndim)
+            level.chunk_bounds(axis, chunk_index[axis]) for axis in range(level.ndim)
         )
         start = tuple(value for value, _stop in bounds)
         stop = tuple(value for _start, value in bounds)

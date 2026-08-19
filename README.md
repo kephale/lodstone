@@ -8,9 +8,6 @@ It is intended to be shared by clients such as ChimeraX, Blender, napari, and
 ndv. Lodstone does not create windows, textures, shaders, layers, or viewer
 models.
 
-Current cross-repository development state and resume instructions are kept in
-[`HANDOFF.md`](HANDOFF.md).
-
 ```text
 Source + View + Target
           │
@@ -185,19 +182,22 @@ from lodstone import Layout, ResidentArrays
 
 resident = ResidentArrays(source.pyramid)
 
+
 def layout(view, pyramid):
-    return Layout(kind="dense", memory_limit=512 * 1024**2,
-                  squeeze_hidden=False)
+    return Layout(kind="dense", memory_limit=512 * 1024**2, squeeze_hidden=False)
+
 
 def prepare(view, plan):
     transition = resident.prepare(plan)
     # Create renderer resources for transition.prepared and remove
     # transition.retired resources.
 
+
 def apply(updates):
     for change in resident.apply(updates):
         # Patch or invalidate the renderer resource for change.window.
         pass
+
 
 def complete(view, plan):
     transition = resident.complete(plan)
