@@ -129,6 +129,11 @@ GPU upload pacing. The example exposes `--tile-mib`, `--interval-mib`, and
 `--rate-mib` for tuning those constraints. Pass `--trace-chunks` to report the
 exact desired/wanted tile counts alongside unique native chunks, cache hits,
 joined in-flight reads, actual source reads, and evictions for every pass.
+Pass `--diagnostic-levels` to perform the same real source reads while replacing
+the returned pixels with solid categorical labels: magenta is missing content,
+green is L0, yellow is L1, orange is L2, and deeper levels use additional
+stable colors. This makes incomplete viewport coverage visible independently of
+the image's contrast or texture values.
 
 ## Public concepts
 

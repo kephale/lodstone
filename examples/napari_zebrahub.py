@@ -32,6 +32,11 @@ def main() -> None:
         action="store_true",
         help="log planned tiles, native reads, cache hits, and evictions",
     )
+    parser.add_argument(
+        "--diagnostic-levels",
+        action="store_true",
+        help="replace image values with solid labels identifying source levels",
+    )
     arguments = parser.parse_args()
     if arguments.trace_chunks:
         logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
@@ -41,22 +46,33 @@ def main() -> None:
     if not 0 <= arguments.time < shape[0]:
         parser.error(f"--time must be between 0 and {shape[0] - 1}")
 
-    viewer = napari.Viewer(title=f"Lodstone Zebrahub t={arguments.time}")
+    title = f"Lodstone Zebrahub t={arguments.time}"
+    if arguments.diagnostic_levels:
+        title += " — level coverage"
+    viewer = napari.Viewer(title=title)
+    layer_kwargs: dict[str, object] = {
+        "name": f"ZSNS001 t={arguments.time}",
+    }
+    if arguments.diagnostic_levels:
+        layer_kwargs["layer_type"] = "diagnostic"
+    else:
+        layer_kwargs.update(
+            contrast_limits=(0, 1500),
+            colormap="gray",
+            rendering="attenuated_mip",
+        )
     controller = NapariController(
         viewer,
         source,
         # ZSNS001 axes are (t, c, z, y, x). Fixing t and c produces one
         # lazy 3-D multiscale image without materializing either axis.
         fixed_index={0: arguments.time, 1: 0},
-        name=f"ZSNS001 t={arguments.time}",
-        colormap="gray",
-        contrast_limits=(0, 1500),
-        rendering="attenuated_mip",
         tile_max_bytes_3d=arguments.tile_mib * MIB,
         interval_max_bytes=arguments.interval_mib * MIB,
         max_bytes_per_second=(
             None if arguments.rate_mib is None else arguments.rate_mib * MIB
         ),
+        **layer_kwargs,
     )
     viewer.dims.ndisplay = arguments.ndisplay
     viewer.reset_view()

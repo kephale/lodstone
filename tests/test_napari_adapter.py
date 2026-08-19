@@ -9,6 +9,7 @@ from lodstone.adapters import napari as adapter
 from lodstone.adapters.napari import (
     NapariController,
     _SlicedArray,
+    add_lodstone_diagnostics,
     add_lodstone_image,
     add_lodstone_labels,
 )
@@ -112,6 +113,33 @@ def test_add_labels_delegates_to_progressive_napari_factory(monkeypatch) -> None
     assert captured["kwargs"]["viewer"] == "viewer"
     assert captured["kwargs"]["name"] == "segmentation"
     assert captured["kwargs"]["fill_value"] == 0
+
+
+def test_add_diagnostics_delegates_to_level_factory(monkeypatch) -> None:
+    source = source_4d()
+    layer = SimpleNamespace(metadata={"progressive_loader": object()})
+    captured = {}
+
+    def factory(arrays, **kwargs):
+        captured["arrays"] = arrays
+        captured["kwargs"] = kwargs
+        return layer
+
+    monkeypatch.setattr(adapter, "_progressive_diagnostics_factory", lambda: factory)
+    result = add_lodstone_diagnostics(
+        source,
+        viewer="viewer",
+        fixed_index={0: 1},
+        name="level coverage",
+    )
+
+    assert result is layer
+    assert [array.shape for array in captured["arrays"]] == [
+        (4, 6, 8),
+        (2, 3, 4),
+    ]
+    assert captured["kwargs"]["viewer"] == "viewer"
+    assert captured["kwargs"]["name"] == "level coverage"
 
 
 def test_controller_owns_progressive_loader_lifecycle(monkeypatch) -> None:

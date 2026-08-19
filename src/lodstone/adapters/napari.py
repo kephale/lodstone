@@ -103,6 +103,19 @@ def _progressive_labels_factory():
     return add_lodstone_loading_labels
 
 
+def _progressive_diagnostics_factory():
+    try:
+        from napari.experimental._lodstone_loading import (  # pyright: ignore[reportMissingImports]
+            add_lodstone_level_diagnostics,
+        )
+    except (ImportError, ModuleNotFoundError) as error:
+        raise RuntimeError(
+            "the Lodstone napari adapter requires napari's progressive-loading "
+            "implementation (napari PR #9067)"
+        ) from error
+    return add_lodstone_level_diagnostics
+
+
 def _layer_affine(source: Source, fixed_index: Mapping[int, int]) -> np.ndarray:
     transform = source.pyramid.levels[0].voxel_to_world
     axes = tuple(axis for axis in range(source.pyramid.ndim) if axis not in fixed_index)
@@ -189,6 +202,36 @@ def add_lodstone_labels(
     )
 
 
+def add_lodstone_diagnostics(
+    source: Source,
+    viewer: Any = None,
+    *,
+    fixed_index: Mapping[int, int] | None = None,
+    **layer_kwargs: Any,
+) -> Any:
+    """Add a categorical layer showing actual reads by pyramid level."""
+
+    if not isinstance(source, ArraySource):
+        raise TypeError(
+            "napari progressive rendering requires a source exposing lazy "
+            "array levels through an 'arrays' property"
+        )
+    fixed = dict(fixed_index or {})
+    arrays: Sequence[Any] = source.arrays
+    if fixed:
+        arrays = tuple(
+            _SlicedArray(array, fixed, level.chunk_grid or level.chunks)
+            for array, level in zip(arrays, source.pyramid.levels, strict=True)
+        )
+
+    layer_kwargs.setdefault("affine", _layer_affine(source, fixed))
+    return _progressive_diagnostics_factory()(
+        arrays,
+        viewer=viewer,
+        **layer_kwargs,
+    )
+
+
 class NapariController:
     """Lifecycle wrapper around a PR-style progressive napari layer."""
 
@@ -198,14 +241,19 @@ class NapariController:
         source: Source,
         *,
         fixed_index: Mapping[int, int] | None = None,
-        layer_type: Literal["image", "labels"] = "image",
+        layer_type: Literal["image", "labels", "diagnostic"] = "image",
         **layer_kwargs: Any,
     ) -> None:
         self.viewer = viewer
         self.source = source
-        if layer_type not in ("image", "labels"):
-            raise ValueError("layer_type must be 'image' or 'labels'")
-        factory = add_lodstone_image if layer_type == "image" else add_lodstone_labels
+        factories = {
+            "image": add_lodstone_image,
+            "labels": add_lodstone_labels,
+            "diagnostic": add_lodstone_diagnostics,
+        }
+        if layer_type not in factories:
+            raise ValueError("layer_type must be 'image', 'labels', or 'diagnostic'")
+        factory = factories[layer_type]
         self.layer = factory(
             source,
             viewer,
