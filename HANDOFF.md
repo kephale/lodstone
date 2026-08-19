@@ -9,8 +9,9 @@ Last updated: 2026-08-19
 - Repository: `https://github.com/kephale/lodstone`
 - Local checkout: `/Users/kharrington/git/napari/lodstone`
 - Branch: `main`, synchronized with `origin/main` before this handoff update
-- Latest implementation adds rectilinear native chunk grids and progressive
-  napari Labels support on top of the bounded resident array work.
+- Latest implementation adds adapter-supplied exact plan execution,
+  rectilinear native chunk grids, source fill values, and progressive napari
+  Labels support on top of the bounded resident array work.
 - Important preceding commits:
   - `06de99c`: development handoff
   - `38ac773`: Zebrahub napari stress test
@@ -89,28 +90,52 @@ from napari PR #9067:
 - GLIR upload metering;
 - interaction quality changes and renderer event handling.
 
-The `lodstone-integration` branch replaces the PR's pass planning and execution
-with Lodstone. A real 2-D/3-D camera, viewport, hidden-axis selection, and
-per-level napari world transforms are captured as a Lodstone `View` and
-`Pyramid`. Lodstone now chooses the target level, visible chunks, complete
-coarse ladder, and delivery order, and performs chunk reads, decoded caching,
-batching, cancellation, stale-pass rejection, rate limiting, and interaction
-pause. Arriving updates are written into `VirtualData` and then passed through
-the PR's existing `_on_chunks` texture path.
+The `lodstone-integration` branch delegates pass execution to Lodstone while
+preserving the PR's renderer-specific plan exactly. A real 2-D/3-D camera,
+viewport, hidden-axis selection, and per-level napari world transforms are
+captured as a Lodstone `View` and `Pyramid`. Napari chooses the target level,
+chunk-aligned bounding volume, coarse ladder, and delivery order; Lodstone's
+`Stream.submit()` performs those exact reads with decoded caching, batching,
+cancellation, stale-pass rejection, rate limiting, and interaction pause.
+Arriving updates are written into `VirtualData` and then passed through the
+PR's existing `_on_chunks` texture path.
 
 The PR still owns bounded resident intervals, coarsest resident-worker reads,
-backdrops, texture patching, double buffering, and presentation. Its former
-plan is reconstructed as a comparison trace. Current fixtures agree on target
-level, desired geometry, ladder phases, and cache-filtered `wanted` geometry
-for centered and moved 2-D views, centered and rotated 3-D views, an
-intermediate 3-D LOD, and a nonzero hidden-axis step. Exact trace ordering can
-differ for symmetric priority ties; Lodstone's order is authoritative.
+backdrops, texture patching, double buffering, and presentation. Lodstone's
+generic frustum planner remains available as a comparison trace, but it is not
+authoritative for napari. A real Zebrahub audit showed why: at the same target
+level the PR requested 22 desired / 18 missing tiles while strict frustum
+intersection requested 16 / 12, omitting six chunks from napari's intentional
+camera-bounded cuboid. The submitted Lodstone plan now equals the PR plan.
 
 The public Lodstone adapter entry point is `NapariController`; it calls the
 Image or Labels factory in `napari.experimental._lodstone_loading`. The
 integration branch also routes PR #9067's automatic Image/Labels replacement
 and derived Labels creation through Lodstone. It requires the
 `lodstone-integration` napari branch. Stock napari does not contain this module.
+
+## PR #9067 review audit
+
+The review and issue comments were rechecked on 2026-08-19. Their actionable
+behavioral points map to the integration as follows:
+
+- 3-D camera direction, extent selection, FOV, texture-size clamps, and
+  pathological chunk shapes stay on the proven PR planning path; Lodstone
+  executes its exact regions instead of substituting strict frustum culling.
+- Rectilinear Zarr/Dask chunk grids are retained end to end in Lodstone rather
+  than collapsed to the first chunk size.
+- Source fill values initialize Lodstone resident windows and napari virtual
+  data instead of being hard-coded to zero.
+- Full napari transforms and affine matrices are preserved, and the adapter
+  uses `viewer.scene.camera` rather than the deprecated camera alias.
+- Half-voxel alignment, backdrops, RGB handling, time-step presentation,
+  double-buffered textures, GLIR upload metering, and teardown safety remain
+  napari-owned and therefore follow the PR code directly.
+- Lodstone core does not hold a viewer reference. `Stream.submit()` is the
+  adapter boundary requested in the architectural review: host-specific
+  slicing policy produces a plan and the renderer-neutral stream executes it.
+- PyQt6 remains the validated backend for this experimental path; the PR's
+  PySide6 skips and teardown protections are retained.
 
 ## ChimeraX integration boundary
 
@@ -198,7 +223,7 @@ were revalidated after transferring planning authority on 2026-08-04 with
 Lodstone:
 
 ```bash
-uv run --extra test pytest -q    # 38 passed
+uv run --extra test pytest -q    # 40 passed
 uv run ruff check src tests examples
 uv run pyright src
 uv build
@@ -212,7 +237,7 @@ PYTHONPATH="/Users/kharrington/git/napari/lodstone/src:$PWD" \
   src/napari/experimental/_tests/test_auto_progressive.py \
   src/napari/experimental/_tests/test_lodstone_loading.py \
   src/napari/experimental/_tests/test_progressive_loading.py
-# 99 passed with PyQt6
+# 100 passed with PyQt6
 ```
 
 ChimeraX portable:

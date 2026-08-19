@@ -60,6 +60,9 @@ class ArrayPyramidSource:
                 chunk_shape = tuple(
                     int(value) for value in cast(Sequence[int], native)
                 )
+            fill_value = getattr(array, "fill_value", 0)
+            if fill_value is None:
+                fill_value = 0
             metadata.append(
                 Level(
                     shape,
@@ -67,6 +70,7 @@ class ArrayPyramidSource:
                     chunk_shape,
                     np.asarray(matrix),
                     chunk_grid,
+                    fill_value,
                 )
             )
         self._pyramid = Pyramid(axis_names, tuple(metadata))

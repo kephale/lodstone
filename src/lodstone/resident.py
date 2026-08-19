@@ -176,7 +176,11 @@ class ResidentArrays:
 
     def _allocate(self, level: int, region: Region) -> ResidentWindow:
         info = self.pyramid.levels[level]
-        data = np.zeros(region.shape, dtype=self.dtypes[level])
+        data = np.full(
+            region.shape,
+            info.fill_value,
+            dtype=self.dtypes[level],
+        )
         return ResidentWindow(level, region, data, info.voxel_to_world)
 
 

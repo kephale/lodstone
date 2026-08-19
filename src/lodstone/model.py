@@ -6,7 +6,7 @@ import bisect
 from dataclasses import dataclass
 from functools import reduce
 from operator import mul
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -59,6 +59,7 @@ class Level:
     chunks: tuple[int, ...]
     voxel_to_world: npt.NDArray[np.float64]
     chunk_grid: tuple[tuple[int, ...], ...] | None = None
+    fill_value: Any = 0
 
     def __post_init__(self) -> None:
         ndim = len(self.shape)

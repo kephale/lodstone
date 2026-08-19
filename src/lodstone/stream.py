@@ -118,11 +118,34 @@ class Stream:
         with self._state_lock:
             if self._closed:
                 raise RuntimeError("stream is closed")
-            self._generation += 1
-            generation = self._generation
             available = frozenset(self._available)
         layout = self.target.layout(view, self.source.pyramid)
         plan = self.planner.plan(self.source.pyramid, view, layout, available=available)
+        return self._start(view, plan, layout)
+
+    def submit(self, view: View, plan: Plan) -> Plan:
+        """Execute an adapter-supplied plan for the newest view.
+
+        Viewer integrations may already own renderer-specific region selection
+        or need to preserve an established loading policy exactly. ``submit``
+        bypasses :attr:`planner` but retains the stream's cancellation,
+        native-chunk caching, batching, pacing, and stale-generation rejection.
+        """
+
+        with self._state_lock:
+            if self._closed:
+                raise RuntimeError("stream is closed")
+        layout = self.target.layout(view, self.source.pyramid)
+        self._validate_submitted_plan(plan)
+        return self._start(view, plan, layout)
+
+    def _start(self, view: View, plan: Plan, layout: Any) -> Plan:
+        with self._state_lock:
+            if self._closed:
+                raise RuntimeError("stream is closed")
+            self._generation += 1
+            generation = self._generation
+            available = frozenset(self._available)
         if self._active is not None:
             self._active.cancel()
         self._set_status(
@@ -138,6 +161,25 @@ class Stream:
             self._execute(generation, view, plan, layout), self._loop
         )
         return plan
+
+    def _validate_submitted_plan(self, plan: Plan) -> None:
+        levels = self.source.pyramid.levels
+        if not 0 <= plan.target_level < len(levels):
+            raise ValueError("plan target level is outside the source pyramid")
+        for tile in (*plan.wanted, *plan.desired):
+            if not 0 <= tile.level < len(levels):
+                raise ValueError("plan tile level is outside the source pyramid")
+            level = levels[tile.level]
+            if tile.region.ndim != level.ndim or any(
+                start >= stop or stop > size
+                for start, stop, size in zip(
+                    tile.region.start,
+                    tile.region.stop,
+                    level.shape,
+                    strict=True,
+                )
+            ):
+                raise ValueError("plan tile region is outside its source level")
 
     def pause(self) -> None:
         """Pause new reads and target delivery without cancelling the pass."""

@@ -79,6 +79,7 @@ def test_add_image_delegates_to_progressive_napari_factory(monkeypatch) -> None:
     ]
     assert captured["kwargs"]["viewer"] is viewer
     assert captured["kwargs"]["name"] == "DAPI"
+    assert captured["kwargs"]["fill_value"] == 0
     np.testing.assert_allclose(
         captured["kwargs"]["affine"],
         np.diag([5.0, 2.0, 3.0, 1.0]),
@@ -110,6 +111,7 @@ def test_add_labels_delegates_to_progressive_napari_factory(monkeypatch) -> None
     ]
     assert captured["kwargs"]["viewer"] == "viewer"
     assert captured["kwargs"]["name"] == "segmentation"
+    assert captured["kwargs"]["fill_value"] == 0
 
 
 def test_controller_owns_progressive_loader_lifecycle(monkeypatch) -> None:

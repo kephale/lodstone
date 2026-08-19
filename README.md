@@ -75,6 +75,12 @@ with Stream(source, target) as stream:
     stream.update(view)
 ```
 
+Adapters that already have a renderer-specific region policy can call
+``stream.submit(view, plan)``. This executes the supplied regions exactly while
+retaining Lodstone's cancellation, native-chunk cache, batching, pacing, and
+stale-generation rejection. This is how the napari adapter preserves PR
+#9067's camera-bounded 3-D loading behavior.
+
 Viewer integrations normally provide three small pieces:
 
 1. Camera and dimension state converted into `View`.

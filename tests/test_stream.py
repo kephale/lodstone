@@ -6,7 +6,7 @@ from queue import Empty, Queue
 
 import numpy as np
 
-from lodstone import Layout, Planner, Stream
+from lodstone import Layout, Plan, Planner, Region, Stream, Tile, TileKey
 from lodstone.testing import RecordingTarget, SimulatedSource
 
 
@@ -23,6 +23,28 @@ def test_stream_reuses_native_chunks_for_smaller_display_tiles(
         assert len(target.updates) == 16
         assert len(source.reads) == 4
         assert stream.status.progress == 1
+    finally:
+        stream.close()
+
+
+def test_stream_submits_adapter_plan_without_replanning(ortho_view, wait) -> None:
+    data = np.arange(64, dtype=np.uint16).reshape(8, 8)
+    source = SimulatedSource([data], chunks=[(4, 4)])
+    target = RecordingTarget(Layout(kind="tiled", block_shape=(4, 4)))
+    stream = Stream(source, target, planner=Planner(progressive=False))
+    key = TileKey(0, (1, 1), ())
+    tile = Tile(key, Region((4, 4), (8, 8)), 0.0)
+    plan = Plan((tile,), frozenset({key}), 0, (tile,))
+    try:
+        returned = stream.submit(
+            ortho_view((8, 8), viewport=(64, 64)),
+            plan,
+        )
+        wait(lambda: stream.status.state == "complete")
+
+        assert returned is plan
+        assert [update.region for update in target.updates] == [tile.region]
+        np.testing.assert_array_equal(target.updates[0].data, data[4:8, 4:8])
     finally:
         stream.close()
 

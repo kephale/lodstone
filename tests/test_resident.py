@@ -41,6 +41,23 @@ def test_prepare_allocates_only_desired_bounds() -> None:
     assert arrays.nbytes == 20 * 20 * 2
 
 
+def test_prepare_uses_source_fill_value() -> None:
+    class FilledArray:
+        shape = (20, 20)
+        dtype = np.dtype(np.uint16)
+        fill_value = 17
+
+        def __getitem__(self, key):
+            return np.full(self.shape, self.fill_value, dtype=self.dtype)[key]
+
+    source = ArrayPyramidSource([FilledArray()], chunks=[(10, 10)])
+    arrays = ResidentArrays(source.pyramid)
+
+    arrays.prepare(_plan(_tile(0, (0, 0), (10, 10))))
+
+    assert np.all(arrays.windows[0].data == 17)
+
+
 def test_apply_uses_window_relative_coordinates() -> None:
     source = ArrayPyramidSource(
         [np.zeros((100, 100), dtype=np.uint16)], chunks=[(10, 10)]

@@ -49,6 +49,7 @@ class _SlicedArray:
         self.dtype = np.dtype(array.dtype)
         self.ndim = len(self.shape)
         self.size = int(np.prod(self.shape, dtype=np.int64))
+        self.fill_value = getattr(array, "fill_value", 0)
 
         native_chunks = chunks or getattr(array, "chunks", None)
         if native_chunks is not None:
@@ -148,6 +149,7 @@ def add_lodstone_image(
         )
 
     layer_kwargs.setdefault("affine", _layer_affine(source, fixed))
+    layer_kwargs.setdefault("fill_value", source.pyramid.levels[0].fill_value)
     factory = _progressive_image_factory()
     return factory(arrays, viewer=viewer, **layer_kwargs)
 
@@ -180,6 +182,7 @@ def add_lodstone_labels(
         )
 
     layer_kwargs.setdefault("affine", _layer_affine(source, fixed))
+    layer_kwargs.setdefault("fill_value", source.pyramid.levels[0].fill_value)
     return _progressive_labels_factory()(
         arrays,
         viewer=viewer,
