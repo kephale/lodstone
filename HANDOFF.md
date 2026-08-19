@@ -30,7 +30,8 @@ Last updated: 2026-08-19
   `origin/lodstone-integration`
 - Integration commit: `c8385ae1` (`feat: move progressive planning to Lodstone`)
 - The integration branch includes the current PR branch head, `aab611402`,
-  including its latest teardown fixes and upstream synchronization.
+  including its latest teardown fixes, and canonical napari `main` through
+  `f76b6d74b`.
 
 ### chimerax-ome-zarr
 
