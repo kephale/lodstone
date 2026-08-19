@@ -231,6 +231,7 @@ class VirtualData:
         self._min_coord: list[int] | None = None
         self._max_coord: list[int] | None = None
         self._chunk_grid = chunk_sizes_for(array)
+        self.read_chunk_sizes = self._chunk_grid
         self._boundaries = chunk_boundaries(array)
         self._chunk_shape = chunk_shape_for(array)
         # Chunk keys (tuples of (start, stop) pairs) whose data is resident
@@ -473,6 +474,38 @@ class VirtualData:
             self.loaded_chunks.add(chunk_id)
             self.chunk_source[chunk_id] = int(source_level)
             return True
+
+    def copy_chunk_union(
+        self,
+        keys: Sequence[tuple[slice, ...]],
+    ) -> tuple[Region, np.ndarray] | None:
+        """Copy the resident intersection of a set of chunk slice keys."""
+
+        if not keys:
+            return None
+        low = [min(int(key[axis].start) for key in keys) for axis in range(self.ndim)]
+        high = [max(int(key[axis].stop) for key in keys) for axis in range(self.ndim)]
+        with self.lock:
+            resident_min = self._min_coord
+            resident_max = self._max_coord
+            if resident_min is None or resident_max is None:
+                return None
+            low = [
+                max(value, bound)
+                for value, bound in zip(low, resident_min, strict=True)
+            ]
+            high = [
+                min(value, bound)
+                for value, bound in zip(high, resident_max, strict=True)
+            ]
+            if any(stop <= start for start, stop in zip(low, high, strict=True)):
+                return None
+            source = tuple(
+                slice(start - bound, stop - bound)
+                for start, stop, bound in zip(low, high, resident_min, strict=True)
+            )
+            data = np.ascontiguousarray(self.hyperslice[source])
+        return Region(tuple(low), tuple(high)), data
 
     def __getitem__(self, key) -> VirtualArrayView:
         full = tuple((0, s) for s in self.shape)

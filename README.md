@@ -20,6 +20,7 @@ Source + View + Target
 ```bash
 pip install lodstone
 pip install "lodstone[ome-zarr]"  # OME-Zarr and remote stores
+pip install "lodstone[datasets]"  # generative and local Zarr examples
 ```
 
 Lodstone supports Python 3.11 through 3.14. NumPy is its only required runtime
@@ -182,6 +183,11 @@ planners, resident buffers, and viewer adapters.
 
 Zarr remains a lazy storage source. NumPy arrays are only the concrete buffers
 delivered for requested regions.
+
+`lodstone.datasets` provides reusable Mandelbrot and Mandelbulb pyramids,
+including RGB variants, a local multiscale Zarr builder, and a convenience
+loader for local or remote OME-Zarr data. These fixtures are renderer-neutral
+and are shared by integration examples and LodStone's own source tests.
 
 ## Target contract
 

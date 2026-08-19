@@ -58,8 +58,7 @@ class PlanComparison:
         return (
             self.reference.target_level == self.candidate.target_level
             and frozenset(self.reference.tiles) == frozenset(self.candidate.tiles)
-            and frozenset(self.reference.wanted)
-            == frozenset(self.candidate.wanted)
+            and frozenset(self.reference.wanted) == frozenset(self.candidate.wanted)
         )
 
 

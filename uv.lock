@@ -415,6 +415,10 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+datasets = [
+    { name = "zarr", version = "3.1.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "zarr", version = "3.3.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
 ome-zarr = [
     { name = "aiohttp" },
     { name = "fsspec" },
@@ -445,11 +449,12 @@ requires-dist = [
     { name = "fsspec", marker = "extra == 'ome-zarr'", specifier = ">=2024.2" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8" },
+    { name = "zarr", marker = "extra == 'datasets'", specifier = ">=3" },
     { name = "zarr", marker = "extra == 'ome-zarr'", specifier = ">=3" },
     { name = "zarr", marker = "extra == 'test'", specifier = ">=3" },
     { name = "zarr", marker = "extra == 'zarr'", specifier = ">=3" },
 ]
-provides-extras = ["zarr", "ome-zarr", "test"]
+provides-extras = ["zarr", "datasets", "ome-zarr", "test"]
 
 [package.metadata.requires-dev]
 dev = [

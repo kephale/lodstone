@@ -87,8 +87,10 @@ class OMEZarrSource(ArrayPyramidSource):
         if len(axes) != ndim:
             axes = tuple(f"axis_{i}" for i in range(ndim))
 
-        common = () if metadata is None else tuple(
-            metadata.get("coordinateTransformations", ())
+        common = (
+            ()
+            if metadata is None
+            else tuple(metadata.get("coordinateTransformations", ()))
         )
         transforms = []
         finest_shape = np.asarray(arrays[0].shape, dtype=np.float64)

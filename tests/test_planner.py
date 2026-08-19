@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import numpy as np
 
-from lodstone import Layout, Planner, Region
+from lodstone import (
+    Layout,
+    Planner,
+    Region,
+    available_tile_keys,
+    merge_plans,
+    plan_from_slices,
+)
 from lodstone.sources import ArrayPyramidSource
 
 
@@ -207,3 +214,92 @@ def test_region_plan_obeys_dense_target_limits(ortho_view) -> None:
     # The 32-pixel dense window straddles native boundaries and therefore
     # expands to the two intersecting 32-pixel chunks on each axis.
     assert tuple(stops - starts) == (64, 64)
+
+
+def test_overview_plan_keeps_complete_displayed_volume(ortho_view) -> None:
+    source = _pyramid()
+    view = ortho_view((256, 256), viewport=(512, 512))
+
+    plan = Planner().plan_overview(
+        source.pyramid,
+        view,
+        memory_limit=64 * 64 * 2,
+    )
+
+    assert plan.target_level == 2
+    assert {tile.region for tile in plan.desired} == {
+        Region((y, x), (y + 32, x + 32)) for y in (0, 32) for x in (0, 32)
+    }
+    assert {tile.key for tile in plan.desired} == plan.retain
+
+
+def test_overview_plan_restricts_hidden_axes_and_obeys_budget(ortho_view) -> None:
+    source = ArrayPyramidSource(
+        [np.zeros((8, 64, 64), dtype=np.uint8)],
+        chunks=[(1, 32, 32)],
+    )
+    view = ortho_view(
+        (8, 64, 64),
+        displayed_axes=(1, 2),
+        index=(5, None, None),
+    )
+    planner = Planner()
+
+    plan = planner.plan_overview(source.pyramid, view, memory_limit=64 * 64)
+    rejected = planner.plan_overview(source.pyramid, view, memory_limit=64)
+
+    assert {tile.region.start[0] for tile in plan.desired} == {5}
+    assert {tile.region.stop[0] for tile in plan.desired} == {6}
+    assert rejected.desired == ()
+
+
+def test_merge_plans_prepends_overview_and_unions_retention(ortho_view) -> None:
+    source = _pyramid()
+    view = ortho_view((256, 256), viewport=(512, 512))
+    planner = Planner(progressive=False)
+    primary = planner.plan_region(
+        source.pyramid,
+        view,
+        Layout(memory_limit=1 << 30),
+        target_level=0,
+        target_region=Region((64, 64), (128, 128)),
+    )
+    overview = planner.plan_overview(
+        source.pyramid,
+        view,
+        memory_limit=64 * 64 * 2,
+    )
+
+    merged = merge_plans(primary, overview)
+
+    assert merged.target_level == primary.target_level
+    assert merged.wanted[: len(overview.wanted)] == overview.wanted
+    assert merged.retain == primary.retain | overview.retain
+    assert len({tile.key for tile in merged.desired}) == len(merged.desired)
+
+
+def test_renderer_slice_plan_uses_native_keys_and_availability(ortho_view) -> None:
+    source = _pyramid()
+    view = ortho_view((256, 256), viewport=(512, 512))
+    stages = [
+        (2, [(slice(0, 32), slice(0, 32))]),
+        (0, [(slice(32, 64), slice(64, 96))]),
+    ]
+    available = available_tile_keys(
+        source.pyramid,
+        view,
+        {2: {((0, 32), (0, 32))}},
+    )
+
+    plan = plan_from_slices(
+        source.pyramid,
+        view,
+        stages,
+        target_level=0,
+        available=available,
+    )
+
+    assert [tile.level for tile in plan.desired] == [2, 0]
+    assert [tile.level for tile in plan.wanted] == [0]
+    assert plan.desired[0].key in available
+    assert plan.retain == {plan.desired[1].key}

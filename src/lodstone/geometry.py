@@ -113,4 +113,6 @@ def clamp_region_to_budget(
         start[axis] = new_start
         stop[axis] = new_stop
         extent[axis] = new_extent
-    return Region(tuple(int(value) for value in start), tuple(int(value) for value in stop))
+    return Region(
+        tuple(int(value) for value in start), tuple(int(value) for value in stop)
+    )

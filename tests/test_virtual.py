@@ -6,6 +6,7 @@ import pytest
 
 from lodstone import (
     MultiScaleVirtualData,
+    Region,
     VirtualData,
     chunk_boundaries,
     chunk_shape_for,
@@ -225,6 +226,27 @@ def test_set_chunk_rejects_stale_interval(dask_array, base_array):
     assert not vdata.set_chunk(key, base_array[key], source_level=0)
     assert not vdata.loaded_chunks
     assert not vdata.chunk_source
+
+
+def test_copy_chunk_union_clips_and_materializes_contiguous_block(
+    dask_array, base_array
+):
+    vdata = VirtualData(dask_array)
+    vdata.set_interval((32, 40), (96, 120))
+    vdata.set_offset((slice(32, 96), slice(40, 120)), base_array[32:96, 40:120])
+
+    copied = vdata.copy_chunk_union(
+        [
+            (slice(0, 64), slice(0, 80)),
+            (slice(64, 100), slice(80, 120)),
+        ]
+    )
+
+    assert copied is not None
+    region, block = copied
+    assert region == Region((32, 40), (96, 120))
+    assert block.flags.c_contiguous
+    np.testing.assert_array_equal(block, base_array[32:96, 40:120])
 
 
 def test_concurrent_reads_and_writes(dask_array, base_array):

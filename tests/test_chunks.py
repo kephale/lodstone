@@ -6,8 +6,10 @@ import pytest
 from lodstone import (
     chunk_boundaries,
     chunk_ids_in_region,
+    chunk_key_id,
     chunk_shape_for,
     chunk_sizes_for,
+    chunk_slices_for,
     normalize_chunk_sizes,
 )
 
@@ -46,3 +48,18 @@ def test_rectilinear_array_metadata_and_boundaries() -> None:
 def test_invalid_rectilinear_grid_is_rejected() -> None:
     with pytest.raises(ValueError, match="exactly cover"):
         normalize_chunk_sizes((10, 20), ((2, 3), (10, 10)))
+
+
+def test_chunk_slice_keys_and_ids() -> None:
+    array = _RectilinearArray()
+
+    slices = chunk_slices_for(array, ((1, 12), (7, 18)))
+
+    assert slices == (
+        (slice(0, 2), slice(2, 5), slice(5, 10)),
+        (slice(10, 20),),
+    )
+    assert chunk_key_id((slices[0][1], slices[1][0])) == (
+        (2, 5),
+        (10, 20),
+    )

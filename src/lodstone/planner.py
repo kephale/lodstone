@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Collection, Mapping, Sequence
 from itertools import product
 
 import numpy as np
@@ -131,6 +132,56 @@ class Planner:
         desired.sort(key=lambda tile: (tile.phase, tile.priority))
         return Plan(tuple(wanted), frozenset(retain), target_level, tuple(desired))
 
+    def plan_overview(
+        self,
+        pyramid: Pyramid,
+        view: View,
+        *,
+        level_index: int | None = None,
+        memory_limit: int,
+        available: frozenset[TileKey] = frozenset(),
+    ) -> Plan:
+        """Plan persistent whole-volume context at one coarse level.
+
+        All displayed axes cover their complete extent. Hidden axes are
+        restricted to the current transformed selection, keeping overview
+        residency bounded for time series and channel stacks. An empty plan
+        is returned when even that displayed volume exceeds ``memory_limit``.
+        """
+
+        if memory_limit <= 0:
+            raise ValueError("memory_limit must be positive")
+        level_index = len(pyramid.levels) - 1 if level_index is None else level_index
+        if not 0 <= level_index < len(pyramid.levels):
+            raise ValueError("level_index is outside the pyramid")
+        self._validate(pyramid, view, Layout(memory_limit=memory_limit))
+        level = pyramid.levels[level_index]
+        level_selection = _selection_at_level(pyramid, view, level_index)
+        start = [0] * level.ndim
+        stop = list(level.shape)
+        for axis, selected in enumerate(level_selection):
+            if selected is not None:
+                start[axis] = selected
+                stop[axis] = selected + 1
+        region = Region(tuple(start), tuple(stop))
+        if region.size * level.dtype.itemsize > memory_limit:
+            return Plan((), frozenset(), level_index, ())
+
+        selection = tuple(-1 if value is None else int(value) for value in view.index)
+        tiles = _tiles_in_region(
+            level,
+            level_index,
+            region,
+            view,
+            selection,
+            phase=0,
+        )
+        tiles.sort(key=lambda tile: tile.priority)
+        wanted = tuple(tile for tile in tiles if tile.key not in available)
+        return Plan(
+            wanted, frozenset(tile.key for tile in tiles), level_index, tuple(tiles)
+        )
+
     def _validate(self, pyramid: Pyramid, view: View, layout: Layout) -> None:
         if len(view.index) != pyramid.ndim:
             raise ValueError("view index dimensionality does not match the pyramid")
@@ -192,6 +243,92 @@ class Planner:
             result.append(Tile(key, region, projected.priority, phase))
 
         return result
+
+
+def merge_plans(primary: Plan, *prefixes: Plan) -> Plan:
+    """Merge persistent prerequisite plans ahead of a primary view plan.
+
+    Tile identity is de-duplicated while preserving first occurrence order.
+    The primary target level remains authoritative and all retained keys are
+    carried into the combined plan.
+    """
+
+    def unique(tiles):
+        seen: set[TileKey] = set()
+        result = []
+        for tile in tiles:
+            if tile.key not in seen:
+                seen.add(tile.key)
+                result.append(tile)
+        return tuple(result)
+
+    ordered = (*prefixes, primary)
+    wanted = unique(tile for plan in ordered for tile in plan.wanted)
+    desired = unique(tile for plan in ordered for tile in plan.desired)
+    retain = frozenset(key for plan in ordered for key in plan.retain)
+    return Plan(wanted, retain, primary.target_level, desired)
+
+
+def available_tile_keys(
+    pyramid: Pyramid,
+    view: View,
+    chunk_bounds: Mapping[int, Collection[tuple[tuple[int, int], ...]]],
+) -> frozenset[TileKey]:
+    """Translate resident native chunk bounds into logical display keys."""
+
+    selection = tuple(-1 if value is None else int(value) for value in view.index)
+    keys = set()
+    for level_index, chunks in chunk_bounds.items():
+        level = pyramid.levels[level_index]
+        for chunk in chunks:
+            starts = tuple(start for start, _stop in chunk)
+            grid_index = tuple(
+                level.chunk_index(axis, starts[axis]) for axis in view.displayed_axes
+            )
+            keys.add(TileKey(level_index, grid_index, selection))
+    return frozenset(keys)
+
+
+def plan_from_slices(
+    pyramid: Pyramid,
+    view: View,
+    stages: Sequence[tuple[int, Sequence[tuple[slice, ...]]]],
+    *,
+    target_level: int,
+    available: frozenset[TileKey] = frozenset(),
+    fetch_levels: Collection[int] | None = None,
+) -> Plan:
+    """Build an exact compatibility plan from renderer-supplied slice queues."""
+
+    selection = tuple(-1 if value is None else int(value) for value in view.index)
+    desired = []
+    wanted = []
+    retain = set()
+    for phase, (level_index, queue) in enumerate(stages):
+        level = pyramid.levels[level_index]
+        for priority, key in enumerate(queue):
+            region = Region(
+                tuple(int(item.start) for item in key),
+                tuple(int(item.stop) for item in key),
+            )
+            grid_index = tuple(
+                level.chunk_index(axis, region.start[axis])
+                for axis in view.displayed_axes
+            )
+            tile = Tile(
+                TileKey(level_index, grid_index, selection),
+                region,
+                float(priority),
+                phase,
+            )
+            desired.append(tile)
+            if level_index == target_level:
+                retain.add(tile.key)
+            if tile.key not in available and (
+                fetch_levels is None or level_index in fetch_levels
+            ):
+                wanted.append(tile)
+    return Plan(tuple(wanted), frozenset(retain), target_level, tuple(desired))
 
 
 def _display_grid(
@@ -303,8 +440,7 @@ def _tiles_in_region(
     tiles = []
     for grid_index in product(*per_axis):
         bounds = tuple(
-            level.chunk_bounds(axis, index)
-            for axis, index in enumerate(grid_index)
+            level.chunk_bounds(axis, index) for axis, index in enumerate(grid_index)
         )
         tile_region = Region(
             tuple(start for start, _stop in bounds),

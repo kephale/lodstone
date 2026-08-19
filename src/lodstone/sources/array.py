@@ -26,7 +26,9 @@ class FixedAxisArray:
             for axis, index in self._fixed.items()
         ):
             raise ValueError("fixed index is outside the source shape")
-        self.source_axes = tuple(axis for axis in range(ndim) if axis not in self._fixed)
+        self.source_axes = tuple(
+            axis for axis in range(ndim) if axis not in self._fixed
+        )
         if not self.source_axes:
             raise ValueError("at least one non-fixed axis is required")
         self.shape = tuple(int(array.shape[axis]) for axis in self.source_axes)

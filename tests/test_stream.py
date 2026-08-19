@@ -455,3 +455,31 @@ def test_pause_holds_reads_until_resume(ortho_view, wait) -> None:
         assert target.updates
     finally:
         stream.close()
+
+
+def test_stream_paces_native_reads(ortho_view, wait) -> None:
+    class TimedSource(SimulatedSource):
+        def __init__(self, *args, **kwargs) -> None:
+            super().__init__(*args, **kwargs)
+            self.read_times: list[float] = []
+
+        async def read(self, level, region):
+            self.read_times.append(time.monotonic())
+            return await super().read(level, region)
+
+    source = TimedSource([np.zeros((8, 8), dtype=np.uint8)], chunks=[(4, 4)])
+    target = RecordingTarget(Layout(block_shape=(4, 4)))
+    stream = Stream(
+        source,
+        target,
+        planner=Planner(progressive=False),
+        workers=4,
+        bytes_per_second=320,
+    )
+    try:
+        stream.update(ortho_view((8, 8), viewport=(64, 64)))
+        wait(lambda: stream.status.state == "complete")
+        assert len(source.read_times) == 4
+        assert source.read_times[-1] - source.read_times[0] >= 0.1
+    finally:
+        stream.close()

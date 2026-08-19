@@ -8,7 +8,15 @@ from typing import Any, cast
 
 import numpy as np
 
+from .model import Region
+
 ChunkGrid = tuple[tuple[int, ...], ...]
+
+
+def chunk_key_id(key: Sequence[slice]) -> tuple[tuple[int, int], ...]:
+    """Return stable absolute bounds for a concrete chunk slice key."""
+
+    return tuple((int(item.start), int(item.stop)) for item in key)
 
 
 def regular_chunk_sizes(
@@ -46,10 +54,7 @@ def normalize_chunk_sizes(
     )
     if any(not axis or any(value <= 0 for value in axis) for axis in grid):
         raise ValueError("chunk grid dimensions must be non-empty and positive")
-    if any(
-        sum(axis) != int(size)
-        for axis, size in zip(grid, shape, strict=True)
-    ):
+    if any(sum(axis) != int(size) for axis, size in zip(grid, shape, strict=True)):
         raise ValueError("chunk grid sizes must exactly cover the array shape")
     return grid
 
@@ -81,8 +86,7 @@ def chunk_shape_for(array: Any, *, fallback: int = 256) -> tuple[int, ...]:
     if chunksize is not None:
         return tuple(int(value) for value in chunksize)
     return tuple(
-        max(axis) if axis else 1
-        for axis in chunk_sizes_for(array, fallback=fallback)
+        max(axis) if axis else 1 for axis in chunk_sizes_for(array, fallback=fallback)
     )
 
 
@@ -113,3 +117,31 @@ def chunk_ids_in_region(
             tuple((int(starts[i]), int(stops[i])) for i in range(first, last))
         )
     return itertools.product(*per_axis)
+
+
+def chunk_slices_for(
+    array: Any,
+    region: Region | tuple[Sequence[int], Sequence[int]] | None = None,
+) -> tuple[tuple[slice, ...], ...]:
+    """Return per-axis native chunk slices, optionally intersecting a region."""
+
+    boundaries = chunk_boundaries(array)
+    if region is None:
+        start = (0,) * len(boundaries)
+        stop = tuple(int(bounds[-1]) for bounds in boundaries)
+    elif isinstance(region, Region):
+        start, stop = region.start, region.stop
+    else:
+        start, stop = region
+    per_axis = []
+    for axis, bounds in enumerate(boundaries):
+        starts, stops = bounds[:-1], bounds[1:]
+        first = int(np.searchsorted(stops, int(start[axis]), side="right"))
+        last = int(np.searchsorted(starts, int(stop[axis]), side="left"))
+        per_axis.append(
+            tuple(
+                slice(int(starts[index]), int(stops[index]))
+                for index in range(first, last)
+            )
+        )
+    return tuple(per_axis)
