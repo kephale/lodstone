@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from lodstone import Layout, Planner
+from lodstone import Layout, Planner, Region
 from lodstone.sources import ArrayPyramidSource
 
 
@@ -146,3 +146,23 @@ def test_hidden_selection_uses_level_scale_and_translation(ortho_view) -> None:
     )
     assert plan.target_level == 1
     assert {tile.region.start[0] for tile in plan.wanted} == {2}
+
+
+def test_native_rectilinear_chunks_define_display_tiles(ortho_view) -> None:
+    data = np.zeros((7, 9), dtype=np.uint8)
+    source = ArrayPyramidSource(
+        [data],
+        chunks=[((2, 3, 2), (4, 1, 4))],
+    )
+
+    plan = Planner(progressive=False).plan(
+        source.pyramid,
+        ortho_view(data.shape, viewport=(128, 128)),
+        Layout(kind="tiled"),
+    )
+
+    assert {tile.region for tile in plan.wanted} == {
+        Region((y0, x0), (y1, x1))
+        for y0, y1 in ((0, 2), (2, 5), (5, 7))
+        for x0, x1 in ((0, 4), (4, 5), (5, 9))
+    }

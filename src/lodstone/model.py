@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import bisect
 from dataclasses import dataclass
 from functools import reduce
 from operator import mul
@@ -57,6 +58,7 @@ class Level:
     dtype: np.dtype
     chunks: tuple[int, ...]
     voxel_to_world: npt.NDArray[np.float64]
+    chunk_grid: tuple[tuple[int, ...], ...] | None = None
 
     def __post_init__(self) -> None:
         ndim = len(self.shape)
@@ -66,6 +68,23 @@ class Level:
             )
         if any(value <= 0 for value in (*self.shape, *self.chunks)):
             raise ValueError("shape and chunk dimensions must be positive")
+        grid = self.chunk_grid
+        if grid is not None:
+            if len(grid) != ndim:
+                raise ValueError(
+                    "chunk grid must have one sequence per array dimension"
+                )
+            normalized_grid = tuple(
+                tuple(int(value) for value in axis) for axis in grid
+            )
+            if any(not axis or any(value <= 0 for value in axis) for axis in normalized_grid):
+                raise ValueError("chunk grid dimensions must be non-empty and positive")
+            if any(
+                sum(axis) != size
+                for axis, size in zip(normalized_grid, self.shape, strict=True)
+            ):
+                raise ValueError("chunk grid sizes must exactly cover the level shape")
+            object.__setattr__(self, "chunk_grid", normalized_grid)
         matrix = np.asarray(self.voxel_to_world, dtype=np.float64)
         if matrix.shape != (ndim + 1, ndim + 1):
             raise ValueError(
@@ -80,6 +99,32 @@ class Level:
     @property
     def ndim(self) -> int:
         return len(self.shape)
+
+    def chunk_sizes(self, axis: int) -> tuple[int, ...]:
+        """Return every native chunk size along ``axis``."""
+
+        if self.chunk_grid is not None:
+            return self.chunk_grid[axis]
+        size = self.chunks[axis]
+        count, remainder = divmod(self.shape[axis], size)
+        return (size,) * count + ((remainder,) if remainder else ())
+
+    def chunk_bounds(self, axis: int, index: int) -> tuple[int, int]:
+        """Return the half-open bounds of one native chunk."""
+
+        sizes = self.chunk_sizes(axis)
+        if not 0 <= index < len(sizes):
+            raise IndexError("chunk index is outside the native chunk grid")
+        start = sum(sizes[:index])
+        return start, start + sizes[index]
+
+    def chunk_index(self, axis: int, coordinate: int) -> int:
+        """Return the native chunk containing a data coordinate."""
+
+        if not 0 <= coordinate < self.shape[axis]:
+            raise IndexError("coordinate is outside the level")
+        boundaries = np.cumsum(self.chunk_sizes(axis)).tolist()
+        return bisect.bisect_right(boundaries, coordinate)
 
 
 @dataclass(frozen=True, slots=True)

@@ -6,7 +6,12 @@ import numpy as np
 import pytest
 
 from lodstone.adapters import napari as adapter
-from lodstone.adapters.napari import NapariController, _SlicedArray, add_lodstone_image
+from lodstone.adapters.napari import (
+    NapariController,
+    _SlicedArray,
+    add_lodstone_image,
+    add_lodstone_labels,
+)
 from lodstone.sources import ArrayPyramidSource
 
 
@@ -78,6 +83,33 @@ def test_add_image_delegates_to_progressive_napari_factory(monkeypatch) -> None:
         captured["kwargs"]["affine"],
         np.diag([5.0, 2.0, 3.0, 1.0]),
     )
+
+
+def test_add_labels_delegates_to_progressive_napari_factory(monkeypatch) -> None:
+    source = source_4d()
+    layer = SimpleNamespace(metadata={"progressive_loader": object()})
+    captured = {}
+
+    def factory(arrays, **kwargs):
+        captured["arrays"] = arrays
+        captured["kwargs"] = kwargs
+        return layer
+
+    monkeypatch.setattr(adapter, "_progressive_labels_factory", lambda: factory)
+    result = add_lodstone_labels(
+        source,
+        viewer="viewer",
+        fixed_index={0: 0},
+        name="segmentation",
+    )
+
+    assert result is layer
+    assert [array.shape for array in captured["arrays"]] == [
+        (4, 6, 8),
+        (2, 3, 4),
+    ]
+    assert captured["kwargs"]["viewer"] == "viewer"
+    assert captured["kwargs"]["name"] == "segmentation"
 
 
 def test_controller_owns_progressive_loader_lifecycle(monkeypatch) -> None:

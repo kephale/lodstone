@@ -23,6 +23,28 @@ def test_level_transform_is_copied_and_read_only() -> None:
         level.voxel_to_world[0, 0] = 3
 
 
+def test_level_rectilinear_chunk_grid_bounds() -> None:
+    level = Level(
+        (7, 9),
+        np.dtype("u1"),
+        (2, 4),
+        identity_transform(2),
+        ((2, 3, 2), (4, 1, 4)),
+    )
+
+    assert level.chunk_bounds(0, 1) == (2, 5)
+    assert level.chunk_bounds(1, 2) == (5, 9)
+    assert [level.chunk_index(0, value) for value in range(7)] == [
+        0,
+        0,
+        1,
+        1,
+        1,
+        2,
+        2,
+    ]
+
+
 def test_pyramid_rejects_mismatched_dimensions() -> None:
     level = Level((10, 12), np.dtype("u1"), (4, 4), identity_transform(2))
     with pytest.raises(ValueError, match="number of axes"):

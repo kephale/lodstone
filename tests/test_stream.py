@@ -27,6 +27,35 @@ def test_stream_reuses_native_chunks_for_smaller_display_tiles(
         stream.close()
 
 
+def test_stream_reads_rectilinear_native_chunks(ortho_view, wait) -> None:
+    data = np.arange(7 * 9, dtype=np.uint16).reshape(7, 9)
+    source = SimulatedSource(
+        [data],
+        chunks=[((2, 3, 2), (4, 1, 4))],
+    )
+    target = RecordingTarget(Layout(kind="tiled"))
+    stream = Stream(source, target, planner=Planner(progressive=False))
+    try:
+        stream.update(ortho_view(data.shape, viewport=(128, 128)))
+        wait(lambda: stream.status.state == "complete")
+
+        assert len(target.updates) == 9
+        assert len(source.reads) == 9
+        assert {read.shape for _level, read in source.reads} == {
+            (2, 4),
+            (2, 1),
+            (3, 4),
+            (3, 1),
+        }
+        for update in target.updates:
+            np.testing.assert_array_equal(
+                update.data,
+                data[update.region.slices()],
+            )
+    finally:
+        stream.close()
+
+
 def test_stream_squeezes_hidden_axes(ortho_view, wait) -> None:
     data = np.arange(2 * 8 * 8, dtype=np.uint16).reshape(2, 8, 8)
     source = SimulatedSource([data], chunks=[(1, 4, 4)])

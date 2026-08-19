@@ -109,6 +109,11 @@ napari.run()
 controller.close()
 ```
 
+Pass ``layer_type="labels"`` for an integer segmentation pyramid. Image and
+Labels layers use the same camera-driven Lodstone planner, cancellation,
+caching, and delivery pipeline. Regular and rectilinear native chunk grids
+are preserved rather than approximated by a single nominal chunk size.
+
 This currently requires the `lodstone-integration` napari branch based on PR
 #9067. Run
 `examples/napari_ome_zarr.py` for a two-channel remote example. The core

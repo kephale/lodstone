@@ -9,7 +9,7 @@ layer, texture double buffering, and partial GPU uploads.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
 import numpy as np
 
@@ -31,7 +31,7 @@ class _SlicedArray:
         self,
         array: Any,
         fixed_index: Mapping[int, int],
-        chunks: Sequence[int] | None = None,
+        chunks: Sequence[int] | Sequence[Sequence[int]] | None = None,
     ) -> None:
         self._array = array
         self._fixed = dict(fixed_index)
@@ -89,6 +89,19 @@ def _progressive_image_factory():
     return add_lodstone_loading_image
 
 
+def _progressive_labels_factory():
+    try:
+        from napari.experimental._lodstone_loading import (  # pyright: ignore[reportMissingImports]
+            add_lodstone_loading_labels,
+        )
+    except (ImportError, ModuleNotFoundError) as error:
+        raise RuntimeError(
+            "the Lodstone napari adapter requires napari's progressive-loading "
+            "implementation (napari PR #9067)"
+        ) from error
+    return add_lodstone_loading_labels
+
+
 def _layer_affine(source: Source, fixed_index: Mapping[int, int]) -> np.ndarray:
     transform = source.pyramid.levels[0].voxel_to_world
     axes = tuple(axis for axis in range(source.pyramid.ndim) if axis not in fixed_index)
@@ -130,13 +143,48 @@ def add_lodstone_image(
     arrays: Sequence[Any] = source.arrays
     if fixed:
         arrays = tuple(
-            _SlicedArray(array, fixed, level.chunks)
+            _SlicedArray(array, fixed, level.chunk_grid or level.chunks)
             for array, level in zip(arrays, source.pyramid.levels, strict=True)
         )
 
     layer_kwargs.setdefault("affine", _layer_affine(source, fixed))
     factory = _progressive_image_factory()
     return factory(arrays, viewer=viewer, **layer_kwargs)
+
+
+def add_lodstone_labels(
+    source: Source,
+    viewer: Any = None,
+    *,
+    fixed_index: Mapping[int, int] | None = None,
+    **layer_kwargs: Any,
+) -> Any:
+    """Add ``source`` as one progressively loaded multiscale Labels layer."""
+
+    if not isinstance(source, ArraySource):
+        raise TypeError(
+            "napari progressive rendering requires a source exposing lazy "
+            "array levels through an 'arrays' property"
+        )
+    if any(
+        not np.issubdtype(level.dtype, np.integer)
+        for level in source.pyramid.levels
+    ):
+        raise TypeError("napari Labels sources must have integer dtype")
+    fixed = dict(fixed_index or {})
+    arrays: Sequence[Any] = source.arrays
+    if fixed:
+        arrays = tuple(
+            _SlicedArray(array, fixed, level.chunk_grid or level.chunks)
+            for array, level in zip(arrays, source.pyramid.levels, strict=True)
+        )
+
+    layer_kwargs.setdefault("affine", _layer_affine(source, fixed))
+    return _progressive_labels_factory()(
+        arrays,
+        viewer=viewer,
+        **layer_kwargs,
+    )
 
 
 class NapariController:
@@ -148,11 +196,17 @@ class NapariController:
         source: Source,
         *,
         fixed_index: Mapping[int, int] | None = None,
+        layer_type: Literal["image", "labels"] = "image",
         **layer_kwargs: Any,
     ) -> None:
         self.viewer = viewer
         self.source = source
-        self.layer = add_lodstone_image(
+        if layer_type not in ("image", "labels"):
+            raise ValueError("layer_type must be 'image' or 'labels'")
+        factory = (
+            add_lodstone_image if layer_type == "image" else add_lodstone_labels
+        )
+        self.layer = factory(
             source,
             viewer,
             fixed_index=fixed_index,

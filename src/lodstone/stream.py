@@ -322,8 +322,8 @@ class Stream:
         level = self.source.pyramid.levels[level_index]
         chunk_ranges = [
             range(
-                region.start[axis] // level.chunks[axis],
-                (region.stop[axis] - 1) // level.chunks[axis] + 1,
+                level.chunk_index(axis, region.start[axis]),
+                level.chunk_index(axis, region.stop[axis] - 1) + 1,
             )
             for axis in range(region.ndim)
         ]
@@ -332,13 +332,12 @@ class Stream:
 
         for chunk_index in product(*chunk_ranges):
             chunk = await self._get_chunk(level_index, tuple(chunk_index))
-            chunk_start = tuple(
-                chunk_index[axis] * level.chunks[axis] for axis in range(region.ndim)
-            )
-            chunk_stop = tuple(
-                min(chunk_start[axis] + level.chunks[axis], level.shape[axis])
+            bounds = tuple(
+                level.chunk_bounds(axis, chunk_index[axis])
                 for axis in range(region.ndim)
             )
+            chunk_start = tuple(start for start, _stop in bounds)
+            chunk_stop = tuple(stop for _start, stop in bounds)
             overlap = region.intersection(Region(chunk_start, chunk_stop))
             if (
                 overlap is None
@@ -383,13 +382,12 @@ class Stream:
         self, level_index: int, chunk_index: tuple[int, ...]
     ) -> np.ndarray:
         level = self.source.pyramid.levels[level_index]
-        start = tuple(
-            chunk_index[axis] * level.chunks[axis] for axis in range(level.ndim)
-        )
-        stop = tuple(
-            min(start[axis] + level.chunks[axis], level.shape[axis])
+        bounds = tuple(
+            level.chunk_bounds(axis, chunk_index[axis])
             for axis in range(level.ndim)
         )
+        start = tuple(value for value, _stop in bounds)
+        stop = tuple(value for _start, value in bounds)
         # ``update()`` may be called immediately after construction, before the
         # runtime thread has entered ``run_forever``.  Initialise lazily on the
         # runtime loop as well as eagerly in ``_run_loop`` to make that race

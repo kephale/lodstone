@@ -7,7 +7,7 @@ from itertools import product
 
 import numpy as np
 
-from .model import Layout, Plan, Pyramid, Region, Tile, TileKey, View
+from .model import Layout, Level, Plan, Pyramid, Region, Tile, TileKey, View
 
 
 class Planner:
@@ -100,23 +100,20 @@ class Planner:
         phase: int,
     ) -> list[Tile]:
         level = pyramid.levels[level_index]
-        block = _display_block_shape(layout, level.chunks, view.displayed_axes)
-        grids = [
-            range(math.ceil(level.shape[axis] / block[i]))
-            for i, axis in enumerate(view.displayed_axes)
-        ]
+        grids = _display_grid(layout, level, view.displayed_axes)
         selection = tuple(-1 if value is None else int(value) for value in view.index)
         level_selection = _selection_at_level(pyramid, view, level_index)
         result: list[Tile] = []
-        for grid_index in product(*grids):
+        for grid_cell in product(*grids):
+            grid_index = tuple(cell[0] for cell in grid_cell)
             start = []
             stop = []
             display_i = 0
             for axis, selected in enumerate(level_selection):
                 if selected is None:
-                    value = grid_index[display_i] * block[display_i]
-                    start.append(value)
-                    stop.append(min(value + block[display_i], level.shape[axis]))
+                    _index, cell_start, cell_stop = grid_cell[display_i]
+                    start.append(cell_start)
+                    stop.append(cell_stop)
                     display_i += 1
                 else:
                     start.append(selected)
@@ -130,6 +127,34 @@ class Planner:
             result.append(Tile(key, region, projected.priority, phase))
 
         return result
+
+
+def _display_grid(
+    layout: Layout,
+    level: Level,
+    displayed_axes: tuple[int, ...],
+) -> list[list[tuple[int, int, int]]]:
+    """Return ``(index, start, stop)`` cells for each displayed axis."""
+
+    if layout.block_shape is None:
+        result = []
+        for axis in displayed_axes:
+            cells = []
+            start = 0
+            for index, size in enumerate(level.chunk_sizes(axis)):
+                cells.append((index, start, start + size))
+                start += size
+            result.append(cells)
+        return result
+
+    block = _display_block_shape(layout, level.chunks, displayed_axes)
+    return [
+        [
+            (index, index * block[i], min((index + 1) * block[i], level.shape[axis]))
+            for index in range(math.ceil(level.shape[axis] / block[i]))
+        ]
+        for i, axis in enumerate(displayed_axes)
+    ]
 
 
 def _display_block_shape(

@@ -1,15 +1,16 @@
 # Development handoff
 
-Last updated: 2026-08-04
+Last updated: 2026-08-19
 
 ## Repository state
 
 ### Lodstone
 
 - Repository: `https://github.com/kephale/lodstone`
-- Local checkout: `/Users/kharrington/git/uermel/lodstone`
+- Local checkout: `/Users/kharrington/git/napari/lodstone`
 - Branch: `main`, synchronized with `origin/main` before this handoff update
-- Latest implementation commit: `f001e3f` (`feat: add bounded resident array windows`)
+- Latest implementation adds rectilinear native chunk grids and progressive
+  napari Labels support on top of the bounded resident array work.
 - Important preceding commits:
   - `06de99c`: development handoff
   - `38ac773`: Zebrahub napari stress test
@@ -22,13 +23,14 @@ Last updated: 2026-08-04
 ### napari
 
 - Repository: `https://github.com/kephale/napari`
-- Local checkout: `/Users/kharrington/git/kephale/napari`
+- Local integration checkout:
+  `/Users/kharrington/git/napari/napari-lodstone-integration`
 - Original PR branch: `progressive-loading-rebase`; it was not modified.
 - Integration branch: `lodstone-integration`, clean and pushed to
   `origin/lodstone-integration`
 - Integration commit: `c8385ae1` (`feat: move progressive planning to Lodstone`)
-- The integration branch is based directly on the current PR branch head,
-  `07e4f3fc`.
+- The integration branch includes the current PR branch head, `aab611402`,
+  including its latest teardown fixes and upstream synchronization.
 
 ### chimerax-ome-zarr
 
@@ -103,10 +105,11 @@ for centered and moved 2-D views, centered and rotated 3-D views, an
 intermediate 3-D LOD, and a nonzero hidden-axis step. Exact trace ordering can
 differ for symmetric priority ties; Lodstone's order is authoritative.
 
-The public Lodstone adapter entry point is `NapariController`; it calls
-`napari.experimental._lodstone_loading.add_lodstone_loading_image`. It requires
-the `lodstone-integration` napari branch. Stock napari does not contain this
-module.
+The public Lodstone adapter entry point is `NapariController`; it calls the
+Image or Labels factory in `napari.experimental._lodstone_loading`. The
+integration branch also routes PR #9067's automatic Image/Labels replacement
+and derived Labels creation through Lodstone. It requires the
+`lodstone-integration` napari branch. Stock napari does not contain this module.
 
 ## ChimeraX integration boundary
 
@@ -154,9 +157,9 @@ Run from the napari checkout:
 
 ```bash
 git switch lodstone-integration
-.venv/bin/pip install -e "/Users/kharrington/git/uermel/lodstone[ome-zarr]"
+.venv/bin/pip install -e "/Users/kharrington/git/napari/lodstone[ome-zarr]"
 .venv/bin/python \
-  /Users/kharrington/git/uermel/lodstone/examples/napari_zebrahub.py \
+  /Users/kharrington/git/napari/lodstone/examples/napari_zebrahub.py \
   --time 400
 ```
 
@@ -194,7 +197,7 @@ were revalidated after transferring planning authority on 2026-08-04 with
 Lodstone:
 
 ```bash
-uv run pytest -q                 # 34 passed
+uv run --extra test pytest -q    # 38 passed
 uv run ruff check src tests examples
 uv run pyright src
 uv build
@@ -203,11 +206,12 @@ uv build
 napari integration branch, with Lodstone on `PYTHONPATH`:
 
 ```bash
-PYTHONPATH="/Users/kharrington/git/uermel/lodstone/src:$PWD" \
+PYTHONPATH="/Users/kharrington/git/napari/lodstone/src:$PWD" \
   .venv/bin/python -m pytest -q \
+  src/napari/experimental/_tests/test_auto_progressive.py \
   src/napari/experimental/_tests/test_lodstone_loading.py \
   src/napari/experimental/_tests/test_progressive_loading.py
-# 86 passed
+# 99 passed with PyQt6
 ```
 
 ChimeraX portable:
@@ -237,12 +241,9 @@ library.
 
 ## Known limitations
 
-- The napari Lodstone factory currently supports Image, not Labels.
-- Fixed axes are chosen when a napari layer is constructed. Zebrahub time is
-  not yet a live napari slider backed by pass cancellation.
-- Lodstone `Level.chunks` currently models regular chunks. The napari PR's
-  native `VirtualData` supports rectilinear chunks, but converting such a pass
-  through `ArrayPyramidSource` needs a richer shared chunk-grid model.
+- Axes removed with the adapter's `fixed_index` option are chosen when a layer
+  is constructed. Axes retained in the source remain live napari sliders and
+  changes are handled as cancellable Lodstone generations.
 - Lodstone rate limiting governs source reads, not the renderer's independently
   metered GPU upload queue.
 - ChimeraX's Lodstone texture uploads do not yet have a renderer-side byte
@@ -253,7 +254,7 @@ library.
 
 1. Implement the Blender/MicroscopyNodes adapter, then ndv, using the same plan
    trace fixtures.
-2. Extend the shared chunk-grid metadata for rectilinear chunks and add mutable
-   fixed-axis selection for large time series such as Zebrahub.
+2. Add mutable adapter-level fixed-axis selection for clients that deliberately
+   remove very large time or channel axes from the napari layer.
 3. Add renderer-side upload byte metering if ChimeraX needs stronger frame-time
    control for very large resident windows.

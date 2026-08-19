@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -20,7 +20,9 @@ class ArrayPyramidSource:
         *,
         axes: Sequence[str] | None = None,
         transforms: Sequence[np.ndarray] | None = None,
-        chunks: Sequence[tuple[int, ...]] | None = None,
+        chunks: Sequence[
+            tuple[int, ...] | tuple[tuple[int, ...], ...]
+        ] | None = None,
     ) -> None:
         if not levels:
             raise ValueError("at least one array level is required")
@@ -43,12 +45,29 @@ class ArrayPyramidSource:
             native = None if chunks is None else chunks[index]
             if native is None:
                 native = getattr(array, "chunks", None)
-                if native and native and isinstance(native[0], tuple):
-                    native = tuple(int(axis_chunks[0]) for axis_chunks in native)
             if native is None:
                 native = shape
+            chunk_grid = None
+            if native and isinstance(native[0], tuple):
+                chunk_grid = tuple(
+                    tuple(int(value) for value in axis_chunks)
+                    for axis_chunks in cast(
+                        Sequence[Sequence[int]], native
+                    )
+                )
+                chunk_shape = tuple(axis_chunks[0] for axis_chunks in chunk_grid)
+            else:
+                chunk_shape = tuple(
+                    int(value) for value in cast(Sequence[int], native)
+                )
             metadata.append(
-                Level(shape, np.dtype(array.dtype), tuple(native), np.asarray(matrix))
+                Level(
+                    shape,
+                    np.dtype(array.dtype),
+                    chunk_shape,
+                    np.asarray(matrix),
+                    chunk_grid,
+                )
             )
         self._pyramid = Pyramid(axis_names, tuple(metadata))
 
