@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import itertools
 import logging
 
 import napari
+import numpy as np
 
 from lodstone.adapters.napari import NapariController
 from lodstone.sources import OMEZarrSource
@@ -15,6 +17,23 @@ DEFAULT_URL = (
     "single-objective/ZSNS001.ome.zarr"
 )
 MIB = 1024**2
+
+
+def volume_extent_vectors(shape: tuple[int, int, int]) -> np.ndarray:
+    """Return the twelve edges bounding all voxel cells in ``shape``."""
+    low = np.full(3, -0.5, dtype=np.float32)
+    high = np.asarray(shape, dtype=np.float32) - 0.5
+    edges = []
+    for axis in range(3):
+        fixed_axes = [candidate for candidate in range(3) if candidate != axis]
+        for fixed_sides in itertools.product((0, 1), repeat=2):
+            start = low.copy()
+            for fixed_axis, side in zip(fixed_axes, fixed_sides, strict=True):
+                start[fixed_axis] = (low, high)[side][fixed_axis]
+            projection = np.zeros(3, dtype=np.float32)
+            projection[axis] = high[axis] - low[axis]
+            edges.append((start, projection))
+    return np.asarray(edges, dtype=np.float32)
 
 
 def main() -> None:
@@ -42,6 +61,11 @@ def main() -> None:
         help="initial 3-D camera Euler angles in degrees",
     )
     parser.add_argument("--zoom", type=float, help="initial camera zoom")
+    parser.add_argument(
+        "--no-extent-box",
+        action="store_true",
+        help="hide the wireframe bounding the full-resolution volume extent",
+    )
     parser.add_argument(
         "--trace-chunks",
         action="store_true",
@@ -89,6 +113,16 @@ def main() -> None:
         ),
         **layer_kwargs,
     )
+    if not arguments.no_extent_box:
+        viewer.add_vectors(
+            volume_extent_vectors(controller.layer.data[0].shape),
+            name="Full volume extent",
+            affine=controller.layer.affine,
+            edge_color="cyan",
+            edge_width=2.5,
+            opacity=0.9,
+            vector_style="line",
+        )
     viewer.dims.ndisplay = arguments.ndisplay
     viewer.reset_view()
     if any(
