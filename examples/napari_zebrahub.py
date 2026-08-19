@@ -28,6 +28,21 @@ def main() -> None:
     parser.add_argument("--screenshot")
     parser.add_argument("--screenshot-delay", type=float, default=90.0)
     parser.add_argument(
+        "--camera-center",
+        type=float,
+        nargs=3,
+        metavar=("Z", "Y", "X"),
+        help="initial 3-D camera center",
+    )
+    parser.add_argument(
+        "--camera-angles",
+        type=float,
+        nargs=3,
+        metavar=("X", "Y", "Z"),
+        help="initial 3-D camera Euler angles in degrees",
+    )
+    parser.add_argument("--zoom", type=float, help="initial camera zoom")
+    parser.add_argument(
         "--trace-chunks",
         action="store_true",
         help="log planned tiles, native reads, cache hits, and evictions",
@@ -76,6 +91,27 @@ def main() -> None:
     )
     viewer.dims.ndisplay = arguments.ndisplay
     viewer.reset_view()
+    if any(
+        value is not None
+        for value in (
+            arguments.camera_center,
+            arguments.camera_angles,
+            arguments.zoom,
+        )
+    ):
+        from qtpy.QtCore import QTimer
+
+        def restore_camera() -> None:
+            # Let the initial volume texture and GL objects be created before
+            # the saved pose triggers a new progressive-loading pass.
+            if arguments.camera_center is not None:
+                viewer.camera.center = tuple(arguments.camera_center)
+            if arguments.camera_angles is not None:
+                viewer.camera.angles = tuple(arguments.camera_angles)
+            if arguments.zoom is not None:
+                viewer.camera.zoom = arguments.zoom
+
+        QTimer.singleShot(1000, restore_camera)
 
     if arguments.screenshot:
         from qtpy.QtCore import QTimer
