@@ -151,6 +151,9 @@ the image's contrast or texture values.
   batching, progressive delivery, and stale-generation rejection.
 - **Composition** — transform-aware nearest-neighbor backdrop sampling and
   unloaded-chunk filling for bounded dense targets.
+- **VirtualData** — a lazy full-shape array view backed by one movable,
+  chunk-aligned in-memory interval; `MultiScaleVirtualData` coordinates these
+  intervals and coarse-to-fine backdrop composition across pyramid levels.
 
 Storage chunks and display tiles are deliberately distinct. A target may ask
 for 32-cubed bricks while the Zarr source stores 16 by 64 by 64 chunks.

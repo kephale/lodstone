@@ -42,6 +42,7 @@ from .resident import (
 from .source import Source
 from .stream import Stream
 from .target import PassTarget, Target
+from .virtual import MultiScaleVirtualData, VirtualArrayView, VirtualData
 
 __all__ = [
     "ChunkEvent",
@@ -50,6 +51,7 @@ __all__ = [
     "Layout",
     "Level",
     "LevelDiagnosticArray",
+    "MultiScaleVirtualData",
     "PassTarget",
     "Plan",
     "PlanComparison",
@@ -70,6 +72,8 @@ __all__ = [
     "TileKey",
     "Update",
     "View",
+    "VirtualArrayView",
+    "VirtualData",
     "anisotropic_extent_for_bytes",
     "chunk_boundaries",
     "chunk_ids_in_region",
