@@ -166,3 +166,44 @@ def test_native_rectilinear_chunks_define_display_tiles(ortho_view) -> None:
         for y0, y1 in ((0, 2), (2, 5), (5, 7))
         for x0, x1 in ((0, 4), (4, 5), (5, 9))
     }
+
+
+def test_region_plan_maps_chunk_aligned_ladder_through_transforms(
+    ortho_view,
+) -> None:
+    source = _pyramid()
+    view = ortho_view((256, 256), viewport=(512, 512))
+    plan = Planner(progressive=True).plan_region(
+        source.pyramid,
+        view,
+        Layout(memory_limit=1 << 30),
+        target_level=0,
+        target_region=Region((32, 64), (96, 160)),
+    )
+
+    assert {tile.level for tile in plan.desired} == {0, 1, 2}
+    assert {tile.region for tile in plan.desired if tile.level == 0} == {
+        Region((y0, x0), (y1, x1))
+        for y0, y1 in ((32, 64), (64, 96))
+        for x0, x1 in ((64, 96), (96, 128), (128, 160))
+    }
+    assert {tile.region for tile in plan.desired if tile.level == 2} == {
+        Region((0, 0), (32, 32)),
+        Region((0, 32), (32, 64)),
+    }
+
+
+def test_region_plan_obeys_dense_target_limits(ortho_view) -> None:
+    source = _pyramid()
+    plan = Planner(progressive=False).plan_region(
+        source.pyramid,
+        ortho_view((256, 256), viewport=(512, 512)),
+        Layout(memory_limit=32 * 32 * 2, max_axis_extent=40),
+        target_level=0,
+        target_region=Region((0, 0), (256, 256)),
+    )
+    starts = np.min([tile.region.start for tile in plan.desired], axis=0)
+    stops = np.max([tile.region.stop for tile in plan.desired], axis=0)
+    # The 32-pixel dense window straddles native boundaries and therefore
+    # expands to the two intersecting 32-pixel chunks on each axis.
+    assert tuple(stops - starts) == (64, 64)

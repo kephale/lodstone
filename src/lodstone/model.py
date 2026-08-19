@@ -200,6 +200,7 @@ class Layout:
     mixed_lod: bool = False
     memory_limit: int = 1 << 30
     squeeze_hidden: bool = True
+    max_axis_extent: int | None = None
 
     def __post_init__(self) -> None:
         if self.block_shape is not None and any(
@@ -208,6 +209,8 @@ class Layout:
             raise ValueError("block_shape dimensions must be positive")
         if self.memory_limit <= 0:
             raise ValueError("memory_limit must be positive")
+        if self.max_axis_extent is not None and self.max_axis_extent <= 0:
+            raise ValueError("max_axis_extent must be positive")
 
 
 @dataclass(frozen=True, slots=True)

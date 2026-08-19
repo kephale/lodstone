@@ -77,6 +77,13 @@ retaining Lodstone's cancellation, native-chunk cache, batching, pacing, and
 stale-generation rejection. This is how the napari adapter preserves PR
 #9067's camera-bounded 3-D loading behavior.
 
+``Planner.plan_region(...)`` provides an incremental migration path for those
+adapters: the viewer may continue choosing the target level and bounded region
+while Lodstone owns transform-aware ladder mapping, native-grid enumeration,
+memory and axis limits, cache filtering, and delivery priority. Integrations
+can compare its stable ``PlanTrace`` against an established planner and retain
+their fallback whenever geometry differs.
+
 Viewer integrations normally provide three small pieces:
 
 1. Camera and dimension state converted into `View`.
@@ -142,6 +149,8 @@ the image's contrast or texture values.
 - **Planner** — deterministic visible-tile and LOD selection.
 - **Stream** — cancellation, priorities, native-chunk reuse, CPU caching,
   batching, progressive delivery, and stale-generation rejection.
+- **Composition** — transform-aware nearest-neighbor backdrop sampling and
+  unloaded-chunk filling for bounded dense targets.
 
 Storage chunks and display tiles are deliberately distinct. A target may ask
 for 32-cubed bricks while the Zarr source stores 16 by 64 by 64 chunks.
@@ -159,8 +168,14 @@ been assembled, preventing mid-request eviction and avoidable rereads.
 
 `ArrayPyramidSource` accepts NumPy, Dask, Zarr, or other indexable array-like
 levels. `ZarrPyramidSource` opens explicitly named arrays in a Zarr group.
-`OMEZarrSource` discovers pyramid levels, axes, and per-level scale and
-translation transforms from OME-Zarr multiscales metadata.
+`OMEZarrSource` discovers nested pyramid levels, axes, and per-level scale and
+translation transforms from OME-Zarr v0.1-v0.5 metadata. It also supports bare
+array pyramids, bounded caches, remote storage options, level limits, and lazy
+fixed-axis or singleton-axis selection.
+
+The public chunk-grid utilities normalize NumPy, Dask, regular Zarr, and
+rectilinear Zarr metadata into one exact grid used consistently by sources,
+planners, resident buffers, and viewer adapters.
 
 Zarr remains a lazy storage source. NumPy arrays are only the concrete buffers
 delivered for requested regions.

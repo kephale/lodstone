@@ -3,12 +3,58 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Sequence
-from typing import Any, cast
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 import numpy as np
 
+from ..chunks import chunk_shape_for, chunk_sizes_for, normalize_chunk_sizes
 from ..model import Level, Pyramid, Region, identity_transform
+
+
+class FixedAxisArray:
+    """Lazy fixed-axis view over an indexable array-like object."""
+
+    def __init__(self, array: Any, fixed_index: Mapping[int, int]) -> None:
+        self._array = array
+        self._fixed = {int(axis): int(index) for axis, index in fixed_index.items()}
+        ndim = len(array.shape)
+        if any(axis < 0 or axis >= ndim for axis in self._fixed):
+            raise ValueError("fixed axis is outside the source dimensionality")
+        if any(
+            index < 0 or index >= int(array.shape[axis])
+            for axis, index in self._fixed.items()
+        ):
+            raise ValueError("fixed index is outside the source shape")
+        self.source_axes = tuple(axis for axis in range(ndim) if axis not in self._fixed)
+        if not self.source_axes:
+            raise ValueError("at least one non-fixed axis is required")
+        self.shape = tuple(int(array.shape[axis]) for axis in self.source_axes)
+        self.dtype = np.dtype(array.dtype)
+        self.ndim = len(self.shape)
+        self.size = int(np.prod(self.shape, dtype=np.int64))
+        self.fill_value = getattr(array, "fill_value", 0)
+
+        source_grid = chunk_sizes_for(array)
+        self.read_chunk_sizes = tuple(source_grid[axis] for axis in self.source_axes)
+        self.chunksize = tuple(max(axis) for axis in self.read_chunk_sizes)
+
+    def __getitem__(self, key: Any) -> Any:
+        if not isinstance(key, tuple):
+            key = (key,)
+        if any(item is Ellipsis for item in key):
+            position = key.index(Ellipsis)
+            missing = self.ndim - (len(key) - 1)
+            key = (*key[:position], *(slice(None),) * missing, *key[position + 1 :])
+        if len(key) > self.ndim:
+            raise IndexError("too many indices for fixed-axis array view")
+        key = (*key, *(slice(None),) * (self.ndim - len(key)))
+        visible = iter(key)
+        source_key = tuple(
+            self._fixed[axis] if axis in self._fixed else next(visible)
+            for axis in range(len(self._array.shape))
+        )
+        return self._array[source_key]
 
 
 class ArrayPyramidSource:
@@ -42,18 +88,11 @@ class ArrayPyramidSource:
                 raise ValueError("all arrays must have equal dimensionality")
             native = None if chunks is None else chunks[index]
             if native is None:
-                native = getattr(array, "chunks", None)
-            if native is None:
-                native = shape
-            chunk_grid = None
-            if native and isinstance(native[0], tuple):
-                chunk_grid = tuple(
-                    tuple(int(value) for value in axis_chunks)
-                    for axis_chunks in cast(Sequence[Sequence[int]], native)
-                )
-                chunk_shape = tuple(axis_chunks[0] for axis_chunks in chunk_grid)
+                chunk_grid = chunk_sizes_for(array)
+                chunk_shape = chunk_shape_for(array)
             else:
-                chunk_shape = tuple(int(value) for value in cast(Sequence[int], native))
+                chunk_grid = normalize_chunk_sizes(shape, native)
+                chunk_shape = tuple(max(axis) for axis in chunk_grid)
             fill_value = getattr(array, "fill_value", 0)
             if fill_value is None:
                 fill_value = 0

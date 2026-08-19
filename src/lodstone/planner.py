@@ -7,6 +7,7 @@ from itertools import product
 
 import numpy as np
 
+from .geometry import clamp_region_to_budget
 from .model import Layout, Level, Plan, Pyramid, Region, Tile, TileKey, View
 
 
@@ -65,6 +66,70 @@ class Planner:
             target_level,
             tuple(desired),
         )
+
+    def plan_region(
+        self,
+        pyramid: Pyramid,
+        view: View,
+        layout: Layout,
+        *,
+        target_level: int,
+        target_region: Region,
+        available: frozenset[TileKey] = frozenset(),
+        fetch_intermediate: bool = True,
+    ) -> Plan:
+        """Plan a memory-bounded cuboid chosen by a renderer integration.
+
+        This mode preserves a target's established viewport-region policy
+        while moving multilevel mapping, native-grid enumeration, priorities,
+        and cache filtering into Lodstone.
+        """
+
+        self._validate(pyramid, view, layout)
+        if not 0 <= target_level < len(pyramid.levels):
+            raise ValueError("target_level is outside the pyramid")
+        if target_region.ndim != pyramid.ndim:
+            raise ValueError("target region dimensionality does not match pyramid")
+
+        levels = [target_level]
+        if self.progressive:
+            levels = list(range(len(pyramid.levels) - 1, target_level - 1, -1))
+        desired: list[Tile] = []
+        wanted: list[Tile] = []
+        retain: set[TileKey] = set()
+        selection = tuple(-1 if value is None else int(value) for value in view.index)
+
+        for phase, level_index in enumerate(levels):
+            region = _map_region(
+                target_region,
+                pyramid.levels[target_level],
+                pyramid.levels[level_index],
+            )
+            level = pyramid.levels[level_index]
+            region = clamp_region_to_budget(
+                region,
+                level.shape,
+                itemsize=level.dtype.itemsize,
+                max_bytes=layout.memory_limit,
+                max_axis_extent=layout.max_axis_extent,
+            )
+            tiles = _tiles_in_region(
+                level,
+                level_index,
+                region,
+                view,
+                selection,
+                phase,
+            )
+            desired.extend(tiles)
+            if level_index == target_level:
+                retain.update(tile.key for tile in tiles)
+            if fetch_intermediate or level_index == target_level:
+                wanted.extend(tile for tile in tiles if tile.key not in available)
+
+        wanted.sort(key=lambda tile: (tile.phase, tile.priority))
+        desired.sort(key=lambda tile: (tile.phase, tile.priority))
+        return Plan(tuple(wanted), frozenset(retain), target_level, tuple(desired))
 
     def _validate(self, pyramid: Pyramid, view: View, layout: Layout) -> None:
         if len(view.index) != pyramid.ndim:
@@ -197,6 +262,59 @@ def _selection_at_level(
             mapped = math.floor(float(level_point[axis]) + 0.5)
             result.append(min(max(mapped, 0), level.shape[axis] - 1))
     return tuple(result)
+
+
+def _map_region(region: Region, source: Level, destination: Level) -> Region:
+    """Map a half-open source-level region into destination coordinates."""
+
+    corners = np.asarray(list(product(*zip(region.start, region.stop, strict=True))))
+    homogeneous = np.concatenate(
+        [corners, np.ones((len(corners), 1), dtype=np.float64)],
+        axis=1,
+    )
+    world = (source.voxel_to_world @ homogeneous.T).T
+    mapped = np.linalg.solve(destination.voxel_to_world, world.T).T[:, :-1]
+    start = np.floor(np.min(mapped, axis=0)).astype(np.int64)
+    stop = np.ceil(np.max(mapped, axis=0)).astype(np.int64)
+    start = np.clip(start, 0, destination.shape)
+    stop = np.clip(stop, start, destination.shape)
+    return Region(
+        tuple(int(value) for value in start),
+        tuple(int(value) for value in stop),
+    )
+
+
+def _tiles_in_region(
+    level: Level,
+    level_index: int,
+    region: Region,
+    view: View,
+    selection: tuple[int, ...],
+    phase: int,
+) -> list[Tile]:
+    per_axis = []
+    for axis in range(level.ndim):
+        if region.stop[axis] <= region.start[axis]:
+            return []
+        first = level.chunk_index(axis, region.start[axis])
+        last = level.chunk_index(axis, region.stop[axis] - 1)
+        per_axis.append(range(first, last + 1))
+
+    tiles = []
+    for grid_index in product(*per_axis):
+        bounds = tuple(
+            level.chunk_bounds(axis, index)
+            for axis, index in enumerate(grid_index)
+        )
+        tile_region = Region(
+            tuple(start for start, _stop in bounds),
+            tuple(stop for _start, stop in bounds),
+        )
+        displayed_grid = tuple(grid_index[axis] for axis in view.displayed_axes)
+        key = TileKey(level_index, displayed_grid, selection)
+        projection = _project_region(level.voxel_to_world, tile_region, view)
+        tiles.append(Tile(key, tile_region, projection.priority, phase))
+    return tiles
 
 
 def _local_world(
