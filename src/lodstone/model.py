@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import bisect
 from dataclasses import dataclass
+from enum import StrEnum
 from functools import reduce
 from operator import mul
 from typing import Any, Literal
@@ -274,6 +275,44 @@ class Status:
     bytes_read: int = 0
     progress: float = 0.0
     error: BaseException | None = None
+
+
+class ChunkState(StrEnum):
+    """Observable lifecycle state for one decoded native chunk."""
+
+    NEW = "new"
+    QUEUED = "queued"
+    LOADING = "loading"
+    READY = "ready"
+    FAILED = "failed"
+    EVICTED = "evicted"
+
+
+@dataclass(frozen=True, slots=True)
+class ChunkEvent:
+    """One native-chunk cache transition."""
+
+    generation: int
+    key: tuple[int, tuple[int, ...]]
+    previous: ChunkState
+    current: ChunkState
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class StreamDiagnostics:
+    """Plan and native-read counters for one stream generation."""
+
+    generation: int = 0
+    desired_tiles: int = 0
+    wanted_tiles: int = 0
+    unique_native_chunks: int = 0
+    cache_hits: int = 0
+    joined_reads: int = 0
+    source_reads: int = 0
+    evictions: int = 0
+    cache_chunks: int = 0
+    cache_bytes: int = 0
 
 
 def identity_transform(ndim: int) -> npt.NDArray[np.float64]:

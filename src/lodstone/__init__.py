@@ -1,12 +1,15 @@
 """Renderer-neutral multiscale chunk planning and streaming."""
 
 from .model import (
+    ChunkEvent,
+    ChunkState,
     Layout,
     Level,
     Plan,
     Pyramid,
     Region,
     Status,
+    StreamDiagnostics,
     Tile,
     TileKey,
     Update,
@@ -25,6 +28,8 @@ from .stream import Stream
 from .target import PassTarget, Target
 
 __all__ = [
+    "ChunkEvent",
+    "ChunkState",
     "Layout",
     "Level",
     "PassTarget",
@@ -39,6 +44,7 @@ __all__ = [
     "Source",
     "Status",
     "Stream",
+    "StreamDiagnostics",
     "Target",
     "Tile",
     "TileKey",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 
 import napari
 
@@ -26,7 +27,14 @@ def main() -> None:
     parser.add_argument("--rate-mib", type=float, default=None)
     parser.add_argument("--screenshot")
     parser.add_argument("--screenshot-delay", type=float, default=90.0)
+    parser.add_argument(
+        "--trace-chunks",
+        action="store_true",
+        help="log planned tiles, native reads, cache hits, and evictions",
+    )
     arguments = parser.parse_args()
+    if arguments.trace_chunks:
+        logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
 
     source = OMEZarrSource.open(arguments.url)
     shape = source.pyramid.levels[0].shape

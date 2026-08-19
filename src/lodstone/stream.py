@@ -4,14 +4,27 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from collections.abc import Callable, Collection, Sequence
 from concurrent.futures import Future
+from dataclasses import replace
+from itertools import product
 from typing import Any, Self
 
 import numpy as np
 
-from .model import Plan, Region, Status, Tile, TileKey, Update, View
+from .model import (
+    ChunkEvent,
+    ChunkState,
+    Plan,
+    Region,
+    Status,
+    StreamDiagnostics,
+    Tile,
+    TileKey,
+    Update,
+    View,
+)
 from .planner import Planner
 from .source import Source
 from .target import Target
@@ -87,6 +100,10 @@ class Stream:
             OrderedDict()
         )
         self._chunk_cache_bytes = 0
+        self._chunk_pins: dict[tuple[int, tuple[int, ...]], int] = {}
+        self._chunk_states: dict[tuple[int, tuple[int, ...]], ChunkState] = {}
+        self._cache_events: deque[ChunkEvent] = deque(maxlen=512)
+        self._diagnostics = StreamDiagnostics()
         self._chunk_tasks: dict[
             tuple[int, tuple[int, ...]], asyncio.Task[np.ndarray]
         ] = {}
@@ -100,6 +117,24 @@ class Stream:
     def available(self) -> frozenset[TileKey]:
         with self._state_lock:
             return frozenset(self._available)
+
+    @property
+    def diagnostics(self) -> StreamDiagnostics:
+        """Native-read counters for the current or most recent pass."""
+        with self._state_lock:
+            return self._diagnostics
+
+    @property
+    def cache_events(self) -> tuple[ChunkEvent, ...]:
+        """Recent native-chunk state transitions, oldest first."""
+        with self._state_lock:
+            return tuple(self._cache_events)
+
+    @property
+    def chunk_states(self) -> dict[tuple[int, tuple[int, ...]], ChunkState]:
+        """Snapshot of the latest state recorded for each native chunk."""
+        with self._state_lock:
+            return dict(self._chunk_states)
 
     def on_status_changed(self, callback: StatusCallback) -> Callable[[], None]:
         with self._state_lock:
@@ -146,6 +181,16 @@ class Stream:
             self._generation += 1
             generation = self._generation
             available = frozenset(self._available)
+            cache_chunks = self._diagnostics.cache_chunks
+            cache_bytes = self._diagnostics.cache_bytes
+            self._diagnostics = StreamDiagnostics(
+                generation=generation,
+                desired_tiles=len(plan.desired or plan.wanted),
+                wanted_tiles=len(plan.wanted),
+                unique_native_chunks=len(self._native_chunk_keys(plan.wanted)),
+                cache_chunks=cache_chunks,
+                cache_bytes=cache_bytes,
+            )
         if self._active is not None:
             self._active.cancel()
         self._set_status(
@@ -271,9 +316,17 @@ class Stream:
                     await self._wait_until_resumed()
                     if not self._is_current(generation):
                         return
-                    results = await asyncio.gather(
-                        *(self._tile_update(tile, view, layout) for tile in window)
-                    )
+                    pinned = self._native_chunk_keys(window)
+                    self._pin_chunks(pinned)
+                    try:
+                        results = await asyncio.gather(
+                            *(
+                                self._tile_update(tile, view, layout, generation)
+                                for tile in window
+                            )
+                        )
+                    finally:
+                        self._unpin_chunks(pinned, generation)
                     if not self._is_current(generation):
                         return
                     bytes_read += sum(update.data.nbytes for update in results)
@@ -348,9 +401,29 @@ class Stream:
             windows.append(current)
         return windows
 
-    async def _tile_update(self, tile: Tile, view: View, layout: Any) -> Update:
+    def _native_chunk_keys(
+        self, tiles: Sequence[Tile]
+    ) -> frozenset[tuple[int, tuple[int, ...]]]:
+        """Return the unique native chunks intersected by ``tiles``."""
+        keys = set()
+        levels = self.source.pyramid.levels
+        for tile in tiles:
+            level = levels[tile.level]
+            ranges = (
+                range(
+                    level.chunk_index(axis, tile.region.start[axis]),
+                    level.chunk_index(axis, tile.region.stop[axis] - 1) + 1,
+                )
+                for axis in range(tile.region.ndim)
+            )
+            keys.update((tile.level, tuple(index)) for index in product(*ranges))
+        return frozenset(keys)
+
+    async def _tile_update(
+        self, tile: Tile, view: View, layout: Any, generation: int
+    ) -> Update:
         await self._wait_until_resumed()
-        data = await self._read_region(tile.level, tile.region)
+        data = await self._read_region(tile.level, tile.region, generation)
         if layout.squeeze_hidden:
             hidden = tuple(
                 axis for axis, value in enumerate(view.index) if value is not None
@@ -360,7 +433,9 @@ class Stream:
         transform = self.source.pyramid.levels[tile.level].voxel_to_world
         return Update(tile.key, tile.region, data, transform)
 
-    async def _read_region(self, level_index: int, region: Region) -> np.ndarray:
+    async def _read_region(
+        self, level_index: int, region: Region, generation: int
+    ) -> np.ndarray:
         level = self.source.pyramid.levels[level_index]
         chunk_ranges = [
             range(
@@ -370,10 +445,8 @@ class Stream:
             for axis in range(region.ndim)
         ]
         output = np.empty(region.shape, dtype=level.dtype)
-        from itertools import product
-
         for chunk_index in product(*chunk_ranges):
-            chunk = await self._get_chunk(level_index, tuple(chunk_index))
+            chunk = await self._get_chunk(level_index, tuple(chunk_index), generation)
             bounds = tuple(
                 level.chunk_bounds(axis, chunk_index[axis])
                 for axis in range(region.ndim)
@@ -403,25 +476,46 @@ class Stream:
         return output
 
     async def _get_chunk(
-        self, level_index: int, chunk_index: tuple[int, ...]
+        self,
+        level_index: int,
+        chunk_index: tuple[int, ...],
+        generation: int,
     ) -> np.ndarray:
         key = (level_index, chunk_index)
         if key in self._chunk_cache:
             array = self._chunk_cache.pop(key)
             self._chunk_cache[key] = array
+            self._increment_diagnostics(generation, cache_hits=1)
             return array
         task = self._chunk_tasks.get(key)
         if task is None:
-            task = self._loop.create_task(self._fetch_chunk(level_index, chunk_index))
+            previous = self._chunk_states.get(key, ChunkState.NEW)
+            reason = "retry requested" if previous is ChunkState.FAILED else "requested"
+            self._transition_chunk(generation, key, ChunkState.QUEUED, reason)
+            task = self._loop.create_task(
+                self._fetch_chunk(level_index, chunk_index, generation)
+            )
             self._chunk_tasks[key] = task
-        try:
-            return await asyncio.shield(task)
-        finally:
-            if task.done() and not task.cancelled():
-                self._chunk_tasks.pop(key, None)
+            task.add_done_callback(
+                lambda completed, key=key: self._forget_chunk_task(key, completed)
+            )
+        else:
+            self._increment_diagnostics(generation, joined_reads=1)
+        return await asyncio.shield(task)
+
+    def _forget_chunk_task(
+        self,
+        key: tuple[int, tuple[int, ...]],
+        task: asyncio.Task[np.ndarray],
+    ) -> None:
+        if self._chunk_tasks.get(key) is task:
+            self._chunk_tasks.pop(key, None)
 
     async def _fetch_chunk(
-        self, level_index: int, chunk_index: tuple[int, ...]
+        self,
+        level_index: int,
+        chunk_index: tuple[int, ...],
+        generation: int,
     ) -> np.ndarray:
         level = self.source.pyramid.levels[level_index]
         bounds = tuple(
@@ -435,25 +529,116 @@ class Stream:
         # harmless.
         if self._read_semaphore is None:
             self._read_semaphore = asyncio.Semaphore(self.workers)
-        async with self._read_semaphore:
-            await self._pace_read(Region(start, stop).size * level.dtype.itemsize)
-            await self._wait_until_resumed()
-            array = np.asarray(await self.source.read(level_index, Region(start, stop)))
+        key = (level_index, chunk_index)
+        try:
+            async with self._read_semaphore:
+                self._transition_chunk(
+                    generation, key, ChunkState.LOADING, "worker acquired"
+                )
+                await self._pace_read(Region(start, stop).size * level.dtype.itemsize)
+                await self._wait_until_resumed()
+                self._increment_diagnostics(generation, source_reads=1)
+                array = np.asarray(
+                    await self.source.read(level_index, Region(start, stop))
+                )
+        except asyncio.CancelledError:
+            self._transition_chunk(
+                generation, key, ChunkState.EVICTED, "read cancelled"
+            )
+            raise
+        except Exception:
+            self._transition_chunk(
+                generation, key, ChunkState.FAILED, "source read failed"
+            )
+            raise
         expected = tuple(b - a for a, b in zip(start, stop, strict=True))
         if array.shape != expected:
+            self._transition_chunk(
+                generation, key, ChunkState.FAILED, "invalid source shape"
+            )
             raise ValueError(
                 f"source returned shape {array.shape} for region with shape {expected}"
             )
-        key = (level_index, chunk_index)
         self._chunk_cache[key] = array
         self._chunk_cache_bytes += array.nbytes
+        self._transition_chunk(
+            generation, key, ChunkState.READY, "source read completed"
+        )
+        self._evict_cache(generation, "cache limit")
+        self._update_cache_size()
+        return array
+
+    def _pin_chunks(self, keys: Collection[tuple[int, tuple[int, ...]]]) -> None:
+        for key in keys:
+            self._chunk_pins[key] = self._chunk_pins.get(key, 0) + 1
+
+    def _unpin_chunks(
+        self,
+        keys: Collection[tuple[int, tuple[int, ...]]],
+        generation: int,
+    ) -> None:
+        for key in keys:
+            count = self._chunk_pins[key] - 1
+            if count:
+                self._chunk_pins[key] = count
+            else:
+                del self._chunk_pins[key]
+        self._evict_cache(generation, "request complete")
+        self._update_cache_size()
+
+    def _evict_cache(self, generation: int, reason: str) -> None:
         while (
             self._chunk_cache_bytes > self.cpu_cache_limit
             and len(self._chunk_cache) > 1
         ):
-            _, evicted = self._chunk_cache.popitem(last=False)
+            key = next(
+                (
+                    candidate
+                    for candidate in self._chunk_cache
+                    if candidate not in self._chunk_pins
+                ),
+                None,
+            )
+            if key is None:
+                return
+            evicted = self._chunk_cache.pop(key)
             self._chunk_cache_bytes -= evicted.nbytes
-        return array
+            self._transition_chunk(generation, key, ChunkState.EVICTED, reason)
+            self._increment_diagnostics(generation, evictions=1)
+
+    def _transition_chunk(
+        self,
+        generation: int,
+        key: tuple[int, tuple[int, ...]],
+        current: ChunkState,
+        reason: str,
+    ) -> None:
+        with self._state_lock:
+            previous = self._chunk_states.get(key, ChunkState.NEW)
+            self._chunk_states[key] = current
+            self._cache_events.append(
+                ChunkEvent(generation, key, previous, current, reason)
+            )
+
+    def _increment_diagnostics(self, generation: int, **changes: int) -> None:
+        with self._state_lock:
+            if self._diagnostics.generation != generation:
+                return
+            self._diagnostics = replace(
+                self._diagnostics,
+                **{
+                    name: getattr(self._diagnostics, name) + value
+                    for name, value in changes.items()
+                },
+            )
+
+    def _update_cache_size(self) -> None:
+        with self._state_lock:
+            self._diagnostics = replace(
+                self._diagnostics,
+                cache_chunks=len(self._chunk_cache),
+                cache_bytes=self._chunk_cache_bytes,
+            )
 
     async def _deliver_updates(
         self, generation: int, updates: Sequence[Update]

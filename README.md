@@ -126,7 +126,9 @@ package still has no napari or Qt dependency.
 ZSNS001 Zebrahub light-sheet series in 3-D. Its approximately 32 MiB native
 chunks make it a useful stress test for cancellation, interaction holds, and
 GPU upload pacing. The example exposes `--tile-mib`, `--interval-mib`, and
-`--rate-mib` for tuning those constraints.
+`--rate-mib` for tuning those constraints. Pass `--trace-chunks` to report the
+exact desired/wanted tile counts alongside unique native chunks, cache hits,
+joined in-flight reads, actual source reads, and evictions for every pass.
 
 ## Public concepts
 
@@ -141,6 +143,13 @@ Storage chunks and display tiles are deliberately distinct. A target may ask
 for 32-cubed bricks while the Zarr source stores 16 by 64 by 64 chunks.
 Lodstone reads each overlapping native chunk once and assembles the requested
 display updates from its decoded cache.
+
+`stream.diagnostics` separates renderer tiles from native storage activity for
+the current or most recent generation. `stream.cache_events` records recent
+`queued`, `loading`, `ready`, `failed`, and `evicted` transitions, while
+`stream.chunk_states` exposes the latest state per native chunk. Native chunks
+required by a delivery batch remain pinned until all its display regions have
+been assembled, preventing mid-request eviction and avoidable rereads.
 
 ## Source adapters
 

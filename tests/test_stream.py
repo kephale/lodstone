@@ -6,7 +6,16 @@ from queue import Empty, Queue
 
 import numpy as np
 
-from lodstone import Layout, Plan, Planner, Region, Stream, Tile, TileKey
+from lodstone import (
+    ChunkState,
+    Layout,
+    Plan,
+    Planner,
+    Region,
+    Stream,
+    Tile,
+    TileKey,
+)
 from lodstone.testing import RecordingTarget, SimulatedSource
 
 
@@ -23,6 +32,105 @@ def test_stream_reuses_native_chunks_for_smaller_display_tiles(
         assert len(target.updates) == 16
         assert len(source.reads) == 4
         assert stream.status.progress == 1
+    finally:
+        stream.close()
+
+
+def test_stream_diagnostics_separate_tiles_from_native_reads(ortho_view, wait) -> None:
+    data = np.arange(64, dtype=np.uint16).reshape(8, 8)
+    source = SimulatedSource([data], chunks=[(4, 4)])
+    target = RecordingTarget(Layout(kind="tiled", block_shape=(2, 2)))
+    stream = Stream(source, target, planner=Planner(progressive=False), batch_size=4)
+    view = ortho_view((8, 8), viewport=(64, 64))
+    try:
+        plan = stream.update(view)
+        wait(lambda: stream.status.state == "complete")
+
+        first = stream.diagnostics
+        assert first.desired_tiles == 16
+        assert first.wanted_tiles == 16
+        assert first.unique_native_chunks == 4
+        assert first.source_reads == 4
+        assert first.cache_chunks == 4
+        assert all(state is ChunkState.READY for state in stream.chunk_states.values())
+
+        stream.submit(view, plan)
+        wait(
+            lambda: (
+                stream.status.state == "complete"
+                and stream.status.generation > first.generation
+            )
+        )
+
+        second = stream.diagnostics
+        assert second.source_reads == 0
+        assert second.cache_hits == 16
+        assert second.unique_native_chunks == 4
+    finally:
+        stream.close()
+
+
+def test_stream_pins_active_batch_until_region_assembly(ortho_view, wait) -> None:
+    data = np.arange(32, dtype=np.uint8).reshape(4, 8)
+    source = SimulatedSource([data], chunks=[(4, 4)])
+    target = RecordingTarget(Layout(kind="tiled", block_shape=(4, 4)))
+    stream = Stream(
+        source,
+        target,
+        planner=Planner(progressive=False),
+        batch_size=2,
+        cpu_cache=16,
+    )
+    try:
+        stream.update(ortho_view(data.shape, viewport=(64, 64)))
+        wait(lambda: stream.status.state == "complete")
+
+        evictions = [
+            event
+            for event in stream.cache_events
+            if event.current is ChunkState.EVICTED
+        ]
+        assert len(source.reads) == 2
+        assert len(evictions) == 1
+        assert evictions[0].reason == "request complete"
+        assert stream.diagnostics.evictions == 1
+        assert stream.diagnostics.cache_chunks == 1
+    finally:
+        stream.close()
+
+
+def test_failed_chunk_is_observable_and_retried_on_next_request(
+    ortho_view, wait
+) -> None:
+    class FailOnceSource(SimulatedSource):
+        failed = False
+
+        async def read(self, level, region):
+            if not self.failed:
+                self.failed = True
+                raise OSError("temporary source failure")
+            return await super().read(level, region)
+
+    data = np.arange(16, dtype=np.uint8).reshape(4, 4)
+    source = FailOnceSource([data], chunks=[(4, 4)])
+    target = RecordingTarget(Layout(kind="tiled", block_shape=(4, 4)))
+    stream = Stream(source, target, planner=Planner(progressive=False))
+    view = ortho_view(data.shape, viewport=(64, 64))
+    try:
+        plan = stream.update(view)
+        wait(lambda: stream.status.state == "failed")
+        assert set(stream.chunk_states.values()) == {ChunkState.FAILED}
+
+        stream.submit(view, plan)
+        wait(lambda: stream.status.state == "complete")
+
+        transitions = [event.current for event in stream.cache_events]
+        assert ChunkState.FAILED in transitions
+        assert any(
+            event.current is ChunkState.QUEUED and event.reason == "retry requested"
+            for event in stream.cache_events
+        )
+        assert set(stream.chunk_states.values()) == {ChunkState.READY}
     finally:
         stream.close()
 
