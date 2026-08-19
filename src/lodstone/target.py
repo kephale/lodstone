@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Collection, Sequence
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from .model import Layout, Plan, Pyramid, TileKey, Update, View
 
@@ -31,4 +31,13 @@ class PassTarget(Protocol):
 
     def complete(self, view: View, plan: Plan) -> None:
         """Reconcile or present the completed pass."""
+        ...
+
+
+@runtime_checkable
+class StagingTarget(Protocol):
+    """Optional target hook for CPU preparation before host dispatch."""
+
+    def stage(self, updates: Sequence[Update]) -> Any:
+        """Prepare updates on the stream thread for cheap host application."""
         ...

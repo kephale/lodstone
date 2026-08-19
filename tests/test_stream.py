@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import time
 from collections.abc import Callable
 from queue import Empty, Queue
@@ -153,6 +154,46 @@ def test_stream_submits_adapter_plan_without_replanning(ortho_view, wait) -> Non
         assert returned is plan
         assert [update.region for update in target.updates] == [tile.region]
         np.testing.assert_array_equal(target.updates[0].data, data[4:8, 4:8])
+    finally:
+        stream.close()
+
+
+def test_target_stages_updates_before_host_dispatch(ortho_view, wait) -> None:
+    calls: Queue[Callable[[], None]] = Queue()
+
+    class StagingRecordingTarget(RecordingTarget):
+        def __init__(self) -> None:
+            super().__init__(Layout(kind="tiled", block_shape=(4, 4)))
+            self.stage_thread: int | None = None
+            self.apply_thread: int | None = None
+
+        def stage(self, updates):
+            self.stage_thread = threading.get_ident()
+            return ("staged", tuple(updates))
+
+        def apply(self, prepared) -> None:
+            marker, updates = prepared
+            assert marker == "staged"
+            self.apply_thread = threading.get_ident()
+            super().apply(updates)
+
+    target = StagingRecordingTarget()
+    source = SimulatedSource([np.zeros((4, 4), dtype=np.uint8)], chunks=[(4, 4)])
+    stream = Stream(source, target, dispatch=calls.put)
+    main_thread = threading.get_ident()
+    try:
+        stream.update(ortho_view((4, 4), viewport=(64, 64)))
+        deadline = time.monotonic() + 5
+        while stream.status.state != "complete":
+            assert time.monotonic() < deadline
+            try:
+                callback = calls.get(timeout=0.05)
+            except Empty:
+                continue
+            callback()
+        assert target.stage_thread is not None
+        assert target.stage_thread != main_thread
+        assert target.apply_thread == main_thread
     finally:
         stream.close()
 

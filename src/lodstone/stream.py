@@ -643,10 +643,17 @@ class Stream:
     async def _deliver_updates(
         self, generation: int, updates: Sequence[Update]
     ) -> None:
+        # Resident-array writes, dtype conversion, and upload-block packing
+        # can be substantial. Targets may stage that CPU work here on the
+        # stream thread so the dispatched host/UI callback only submits the
+        # prepared rendering update.
+        stage = getattr(self.target, "stage", None)
+        prepared = stage(updates) if stage is not None else updates
+
         def apply() -> None:
             if not self._is_current(generation):
                 return
-            self.target.apply(updates)
+            self.target.apply(prepared)
             with self._state_lock:
                 self._available.update(update.key for update in updates)
             self.target.redraw()

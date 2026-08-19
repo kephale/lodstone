@@ -4,9 +4,8 @@ Lodstone is a renderer-neutral engine for view-dependent streaming of
 multiscale chunked arrays. It turns a multiscale `Source` and a camera `View`
 into progressive array `Update`s accepted by a viewer-specific `Target`.
 
-It is intended to be shared by clients such as ChimeraX, Blender, napari, and
-ndv. Lodstone does not create windows, textures, shaders, layers, or viewer
-models.
+It is intended to be shared by clients such as ChimeraX, napari, and ndv.
+Lodstone does not create windows, textures, shaders, layers, or viewer models.
 
 ```text
 Source + View + Target
@@ -223,10 +222,8 @@ The initial expected layouts are:
 | Client | Typical layout |
 | --- | --- |
 | ChimeraX | dense, uniform LOD |
-| Blender/OpenVDB | dense, uniform LOD |
 | napari | tiled |
 | ndv | dense initially |
-| Atlas renderer | bricked, optionally mixed LOD |
 
 Lodstone deliberately stops before physical GPU allocation. The target owns
 textures, double buffering, shader indirection, and renderer invalidation.
