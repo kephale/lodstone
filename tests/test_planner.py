@@ -80,33 +80,45 @@ def test_progressive_plan_can_skip_intermediate_levels(ortho_view) -> None:
 def test_lod_hysteresis_resists_small_level_boundary_crossings(ortho_view) -> None:
     source = _pyramid()
     layout = Layout(block_shape=(32, 32))
-    slightly_inside_fine = ortho_view(
-        (256, 256), viewport=(512, 512), extent_scale=3.9
-    )
+    slightly_inside_fine = ortho_view((256, 256), viewport=(512, 512), extent_scale=3.9)
     slightly_inside_coarse = ortho_view(
         (256, 256), viewport=(512, 512), extent_scale=4.1
     )
 
-    assert Planner(progressive=False).plan(source.pyramid, slightly_inside_fine, layout).target_level == 0
     assert (
-        Planner(progressive=False).plan(
+        Planner(progressive=False)
+        .plan(source.pyramid, slightly_inside_fine, layout)
+        .target_level
+        == 0
+    )
+    assert (
+        Planner(progressive=False)
+        .plan(
             source.pyramid,
             slightly_inside_fine,
             layout,
             previous_target_level=1,
             lod_hysteresis=0.2,
-        ).target_level
+        )
+        .target_level
         == 1
     )
-    assert Planner(progressive=False).plan(source.pyramid, slightly_inside_coarse, layout).target_level == 1
     assert (
-        Planner(progressive=False).plan(
+        Planner(progressive=False)
+        .plan(source.pyramid, slightly_inside_coarse, layout)
+        .target_level
+        == 1
+    )
+    assert (
+        Planner(progressive=False)
+        .plan(
             source.pyramid,
             slightly_inside_coarse,
             layout,
             previous_target_level=0,
             lod_hysteresis=0.2,
-        ).target_level
+        )
+        .target_level
         == 0
     )
 

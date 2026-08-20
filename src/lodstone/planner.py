@@ -29,7 +29,9 @@ class Planner:
             or isinstance(max_intermediate_levels, bool)
             or max_intermediate_levels < 0
         ):
-            raise ValueError("max_intermediate_levels must be a nonnegative integer or None")
+            raise ValueError(
+                "max_intermediate_levels must be a nonnegative integer or None"
+            )
         self.lod_bias = float(lod_bias)
         self.progressive = bool(progressive)
         self.max_intermediate_levels = max_intermediate_levels
@@ -49,7 +51,9 @@ class Planner:
         self._validate(pyramid, view, layout)
         if not 0 <= lod_hysteresis < 1:
             raise ValueError("lod_hysteresis must be in [0, 1)")
-        if previous_target_level is not None and not 0 <= previous_target_level < len(pyramid.levels):
+        if previous_target_level is not None and not 0 <= previous_target_level < len(
+            pyramid.levels
+        ):
             raise ValueError("previous_target_level is outside the pyramid")
         target_level = self._select_level(
             pyramid,
@@ -220,13 +224,23 @@ class Planner:
         lod_hysteresis: float = 0.0,
     ) -> int:
         selected = self._select_level_at_threshold(pyramid, view, self.lod_bias)
-        if previous_target_level is None or selected == previous_target_level or lod_hysteresis == 0:
+        if (
+            previous_target_level is None
+            or selected == previous_target_level
+            or lod_hysteresis == 0
+        ):
             return selected
-        factor = 1 + lod_hysteresis if selected < previous_target_level else 1 - lod_hysteresis
+        factor = (
+            1 + lod_hysteresis
+            if selected < previous_target_level
+            else 1 - lod_hysteresis
+        )
         return self._select_level_at_threshold(pyramid, view, self.lod_bias * factor)
 
     @staticmethod
-    def _select_level_at_threshold(pyramid: Pyramid, view: View, threshold: float) -> int:
+    def _select_level_at_threshold(
+        pyramid: Pyramid, view: View, threshold: float
+    ) -> int:
         selected = 0
         for index, level in enumerate(pyramid.levels):
             footprint = _voxel_footprint_px(level.voxel_to_world, level.shape, view)

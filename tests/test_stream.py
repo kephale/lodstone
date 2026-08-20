@@ -311,9 +311,7 @@ def test_new_generation_rejects_stale_delivery(ortho_view, wait) -> None:
         stream.close()
 
 
-def test_loading_replan_redelivers_tiles_from_superseded_pass(
-    ortho_view, wait
-) -> None:
+def test_loading_replan_redelivers_tiles_from_superseded_pass(ortho_view, wait) -> None:
     data = np.arange(16 * 16, dtype=np.uint16).reshape(16, 16)
     source = SimulatedSource([data], chunks=[(4, 4)], latency=0.05)
     target = RecordingTarget(Layout(kind="tiled", block_shape=(4, 4)))
