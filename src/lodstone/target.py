@@ -35,6 +35,15 @@ class PassTarget(Protocol):
 
 
 @runtime_checkable
+class PhaseTarget(Protocol):
+    """Optional target hook invoked after one progressive phase is delivered."""
+
+    def phase_complete(self, view: View, plan: Plan, phase: int) -> None:
+        """Present or reconcile a completed coarse-to-fine phase."""
+        ...
+
+
+@runtime_checkable
 class StagingTarget(Protocol):
     """Optional target hook for CPU preparation before host dispatch."""
 

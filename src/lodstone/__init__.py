@@ -50,7 +50,7 @@ from .resident import (
 )
 from .source import Source
 from .stream import Stream
-from .target import PassTarget, Target
+from .target import PassTarget, PhaseTarget, StagingTarget, Target
 from .virtual import MultiScaleVirtualData, VirtualArrayView, VirtualData
 
 __all__ = [
@@ -62,6 +62,7 @@ __all__ = [
     "LevelDiagnosticArray",
     "MultiScaleVirtualData",
     "PassTarget",
+    "PhaseTarget",
     "Plan",
     "PlanComparison",
     "PlanTrace",
@@ -73,6 +74,7 @@ __all__ = [
     "ResidentTransition",
     "ResidentWindow",
     "Source",
+    "StagingTarget",
     "Status",
     "Stream",
     "StreamDiagnostics",

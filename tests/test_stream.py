@@ -438,6 +438,33 @@ def test_pass_lifecycle_wraps_delivery(ortho_view, wait) -> None:
         stream.close()
 
 
+def test_phase_lifecycle_follows_each_progressive_phase(ortho_view, wait) -> None:
+    class PhaseRecordingTarget(RecordingTarget):
+        def __init__(self) -> None:
+            super().__init__(Layout(block_shape=(4, 4)))
+            self.phases = []
+
+        def phase_complete(self, view, plan, phase) -> None:
+            self.phases.append(phase)
+
+    source = SimulatedSource(
+        [
+            np.zeros((8, 8), dtype=np.uint8),
+            np.zeros((4, 4), dtype=np.uint8),
+        ],
+        transforms=[np.eye(3), np.diag([2.0, 2.0, 1.0])],
+        chunks=[(4, 4), (4, 4)],
+    )
+    target = PhaseRecordingTarget()
+    stream = Stream(source, target, planner=Planner(progressive=True))
+    try:
+        stream.update(ortho_view((8, 8), viewport=(64, 64)))
+        wait(lambda: stream.status.state == "complete")
+        assert target.phases == [0, 1]
+    finally:
+        stream.close()
+
+
 def test_pause_holds_reads_until_resume(ortho_view, wait) -> None:
     source = SimulatedSource([np.zeros((8, 8), dtype=np.uint8)], chunks=[(4, 4)])
     target = RecordingTarget(Layout(block_shape=(4, 4)))

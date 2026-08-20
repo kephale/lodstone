@@ -343,6 +343,7 @@ class Stream:
                             progress=completed / len(plan.wanted),
                         )
                     )
+                await self._deliver_phase_complete(generation, view, plan, phase)
 
             if not self._is_current(generation):
                 return
@@ -679,6 +680,19 @@ class Stream:
         def run() -> None:
             if self._is_current(generation):
                 complete(view, plan)
+
+        await self._run_on_target(run)
+
+    async def _deliver_phase_complete(
+        self, generation: int, view: View, plan: Plan, phase: int
+    ) -> None:
+        phase_complete = getattr(self.target, "phase_complete", None)
+        if phase_complete is None:
+            return
+
+        def run() -> None:
+            if self._is_current(generation):
+                phase_complete(view, plan, phase)
 
         await self._run_on_target(run)
 

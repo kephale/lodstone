@@ -157,3 +157,57 @@ def test_full_nd_hidden_axis_updates_are_required() -> None:
                 )
             ]
         )
+
+
+def test_composed_residency_repairs_only_unloaded_fine_chunks() -> None:
+    fine_transform = np.eye(3)
+    coarse_transform = np.diag([2.0, 2.0, 1.0])
+    source = ArrayPyramidSource(
+        [
+            np.zeros((8, 8), dtype=np.uint8),
+            np.zeros((4, 4), dtype=np.uint8),
+        ],
+        chunks=[(4, 4), (2, 2)],
+        transforms=[fine_transform, coarse_transform],
+    )
+    arrays = ResidentArrays(source.pyramid, compose=True)
+    coarse = _tile(1, (0, 0), (4, 4), phase=0)
+    fine_left = _tile(0, (0, 0), (4, 4), phase=1)
+    fine_right = _tile(0, (0, 4), (4, 8), phase=1)
+    plan = _plan(coarse, fine_left, fine_right)
+    arrays.prepare(plan)
+
+    coarse_update = Update(
+        coarse.key,
+        coarse.region,
+        np.full((4, 4), 3, dtype=np.uint8),
+        coarse_transform,
+    )
+    changes = arrays.apply([coarse_update])
+
+    fine_window = arrays.windows[0]
+    fine_change = next(change for change in changes if change.window is fine_window)
+    assert fine_change.updates == ()
+    assert fine_change.repaired
+    assert np.all(fine_window.data == 3)
+
+    fine_update = Update(
+        fine_left.key,
+        fine_left.region,
+        np.full((4, 4), 9, dtype=np.uint8),
+        fine_transform,
+    )
+    arrays.apply([fine_update])
+    arrays.apply(
+        [
+            Update(
+                coarse.key,
+                coarse.region,
+                np.full((4, 4), 5, dtype=np.uint8),
+                coarse_transform,
+            )
+        ]
+    )
+
+    assert np.all(fine_window.data[:, :4] == 9)
+    assert np.all(fine_window.data[:, 4:] == 5)

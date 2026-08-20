@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from .composition import fill_unloaded_chunks, nearest_resample_region
 from .model import Plan, Pyramid, Region, Tile, TileKey, Update
 
 
@@ -50,7 +51,14 @@ class ResidentChange:
     """Updates written to one resident window."""
 
     window: ResidentWindow
-    updates: tuple[Update, ...]
+    updates: tuple[Update, ...] = ()
+    repaired: tuple[Region, ...] = ()
+
+    @property
+    def regions(self) -> tuple[Region, ...]:
+        """Every region changed directly or by coarse-backdrop repair."""
+
+        return (*tuple(update.region for update in self.updates), *self.repaired)
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +84,7 @@ class ResidentArrays:
         pyramid: Pyramid,
         *,
         dtypes: Sequence[np.dtype | str | type] | None = None,
+        compose: bool = False,
     ) -> None:
         self.pyramid = pyramid
         self.dtypes = tuple(
@@ -84,6 +93,7 @@ class ResidentArrays:
         )
         if len(self.dtypes) != len(pyramid.levels):
             raise ValueError("dtypes must contain one value per pyramid level")
+        self.compose = bool(compose)
         self.active: dict[int, ResidentWindow] = {}
         self.pending: dict[int, ResidentWindow] | None = None
 
@@ -119,6 +129,9 @@ class ResidentArrays:
             pending[level] = window
             prepared.append(window)
 
+        if self.compose:
+            _compose_windows(self.pyramid, pending)
+
         reused = set(pending.values())
         retired = tuple(
             window
@@ -141,8 +154,22 @@ class ResidentArrays:
                 ) from error
             window.write(update)
             grouped[window].append(update)
+        repaired: dict[ResidentWindow, list[Region]] = defaultdict(list)
+        if self.compose:
+            for window, regions in _compose_windows(
+                self.pyramid,
+                windows,
+                source_levels={window.level for window in grouped},
+            ).items():
+                repaired[window].extend(regions)
+        changed = set(grouped) | set(repaired)
         return tuple(
-            ResidentChange(window, tuple(batch)) for window, batch in grouped.items()
+            ResidentChange(
+                window,
+                tuple(grouped.get(window, ())),
+                tuple(repaired.get(window, ())),
+            )
+            for window in sorted(changed, key=lambda item: item.level, reverse=True)
         )
 
     def discard(self, keys: Collection[TileKey]) -> None:
@@ -229,6 +256,47 @@ def _copy_overlap(source: ResidentWindow, destination: ResidentWindow) -> None:
             if destination.region.intersection(region) == region
         }
     )
+
+
+def _compose_windows(
+    pyramid: Pyramid,
+    windows: dict[int, ResidentWindow],
+    *,
+    source_levels: Collection[int] | None = None,
+) -> dict[ResidentWindow, tuple[Region, ...]]:
+    """Fill unloaded fine chunks from the most detailed available backdrop."""
+
+    changed: dict[ResidentWindow, list[Region]] = defaultdict(list)
+    sources = windows if source_levels is None else source_levels
+    for source_level in sorted(sources, reverse=True):
+        source = windows[source_level]
+        if not source.key_regions:
+            continue
+        for destination_level in sorted(
+            (level for level in windows if level < source_level), reverse=True
+        ):
+            destination = windows[destination_level]
+            content = nearest_resample_region(
+                source.data,
+                source.region,
+                source.transform,
+                destination.region,
+                destination.transform,
+            )
+            repaired = fill_unloaded_chunks(
+                destination.data,
+                destination.region,
+                content,
+                destination.region,
+                tuple(
+                    pyramid.levels[destination_level].chunk_sizes(axis)
+                    for axis in range(pyramid.ndim)
+                ),
+                destination.key_regions.values(),
+            )
+            if repaired:
+                changed[destination].extend(repaired)
+    return {window: tuple(regions) for window, regions in changed.items()}
 
 
 def _unique_windows(*collections: dict[int, ResidentWindow]) -> list[ResidentWindow]:

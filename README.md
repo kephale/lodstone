@@ -208,6 +208,11 @@ call `stream.pause()` and `stream.resume()` without discarding the active pass.
 `bytes_per_second` can pace aggregate source reads when decoding or remote I/O
 would otherwise compete with interaction and rendering.
 
+Targets that need an atomic presentation point between coarse-to-fine stages
+may also implement `phase_complete(view, plan, phase)`. The hook is optional;
+existing targets continue to receive the same prepare, apply, complete, and
+redraw calls.
+
 Dense targets can use `ResidentArrays` to avoid allocating complete pyramid
 levels. It stages one full-ND bounding window per desired level, preserves
 overlapping content when the camera moves, translates absolute updates into
@@ -217,7 +222,7 @@ The viewer still owns the corresponding grid, texture, or volume objects:
 ```python
 from lodstone import Layout, ResidentArrays
 
-resident = ResidentArrays(source.pyramid)
+resident = ResidentArrays(source.pyramid, compose=True)
 
 
 def layout(view, pyramid):
@@ -232,7 +237,7 @@ def prepare(view, plan):
 
 def apply(updates):
     for change in resident.apply(updates):
-        # Patch or invalidate the renderer resource for change.window.
+        # Patch or invalidate change.regions in the renderer resource.
         pass
 
 
@@ -240,6 +245,11 @@ def complete(view, plan):
     transition = resident.complete(plan)
     # Present resident.active[plan.target_level] and retire old resources.
 ```
+
+With `compose=True`, coarse updates initialize and repair unloaded native
+chunks in finer pending windows using the pyramid transforms. Directly loaded
+fine chunks are never overwritten. Leaving composition disabled preserves the
+original fill-value and same-level overlap behavior.
 
 The initial expected layouts are:
 
