@@ -410,6 +410,9 @@ class StreamDiagnostics:
     evictions: int = 0
     cache_chunks: int = 0
     cache_bytes: int = 0
+    prepare_stage_seconds: float = 0.0
+    update_stage_seconds: float = 0.0
+    phase_stage_seconds: float = 0.0
 
 
 def identity_transform(ndim: int) -> npt.NDArray[np.float64]:

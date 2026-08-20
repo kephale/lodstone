@@ -48,11 +48,37 @@ class PassTarget(Protocol):
 
 
 @runtime_checkable
+class PassStagingTarget(Protocol):
+    """Optional CPU staging performed before pass preparation dispatch."""
+
+    def stage_prepare(self, view: View, plan: Plan) -> Any:
+        """Prepare CPU residency on the stream thread."""
+        ...
+
+    def prepare(self, view: View, plan: Plan, prepared: Any) -> ResidencyLease | None:
+        """Apply staged preparation on the host thread."""
+        ...
+
+
+@runtime_checkable
 class PhaseTarget(Protocol):
     """Optional target hook invoked after one progressive phase is delivered."""
 
     def phase_complete(self, view: View, plan: Plan, phase: int) -> None:
         """Present or reconcile a completed coarse-to-fine phase."""
+        ...
+
+
+@runtime_checkable
+class PhaseStagingTarget(Protocol):
+    """Optional CPU staging performed before phase publication dispatch."""
+
+    def stage_phase(self, view: View, plan: Plan, phase: int) -> Any:
+        """Build an immutable phase publication on the stream thread."""
+        ...
+
+    def phase_complete(self, view: View, plan: Plan, phase: int, prepared: Any) -> None:
+        """Publish a staged phase on the host thread."""
         ...
 
 

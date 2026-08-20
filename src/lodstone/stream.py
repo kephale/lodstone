@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
 from collections import OrderedDict, deque
 from collections.abc import Callable, Collection, Sequence
 from concurrent.futures import Future
@@ -679,7 +680,7 @@ class Stream:
                 ChunkEvent(generation, key, previous, current, reason)
             )
 
-    def _increment_diagnostics(self, generation: int, **changes: int) -> None:
+    def _increment_diagnostics(self, generation: int, **changes: float) -> None:
         with self._state_lock:
             if self._diagnostics.generation != generation:
                 return
@@ -707,7 +708,13 @@ class Stream:
         # stream thread so the dispatched host/UI callback only submits the
         # prepared rendering update.
         stage = getattr(self.target, "stage", None)
+        stage_started = time.perf_counter()
         prepared = stage(updates) if stage is not None else updates
+        if stage is not None:
+            self._increment_diagnostics(
+                generation,
+                update_stage_seconds=time.perf_counter() - stage_started,
+            )
 
         def apply() -> None:
             if not self._is_current(generation):
@@ -726,12 +733,25 @@ class Stream:
         if prepare is None:
             return None
 
+        stage_prepare = getattr(self.target, "stage_prepare", None)
+        prepared = None
+        if stage_prepare is not None and self._is_current(generation):
+            stage_started = time.perf_counter()
+            prepared = stage_prepare(view, plan)
+            self._increment_diagnostics(
+                generation,
+                prepare_stage_seconds=time.perf_counter() - stage_started,
+            )
+
         result: Any | None = None
 
         def run() -> None:
             nonlocal result
             if self._is_current(generation):
-                result = prepare(view, plan)
+                if stage_prepare is None:
+                    result = prepare(view, plan)
+                else:
+                    result = prepare(view, plan, prepared)
 
         await self._run_on_target(run)
         lease = result if isinstance(result, ResidencyLease) else None
@@ -759,9 +779,22 @@ class Stream:
         if phase_complete is None:
             return
 
+        stage_phase = getattr(self.target, "stage_phase", None)
+        prepared = None
+        if stage_phase is not None and self._is_current(generation):
+            stage_started = time.perf_counter()
+            prepared = stage_phase(view, plan, phase)
+            self._increment_diagnostics(
+                generation,
+                phase_stage_seconds=time.perf_counter() - stage_started,
+            )
+
         def run() -> None:
             if self._is_current(generation):
-                phase_complete(view, plan, phase)
+                if stage_phase is None:
+                    phase_complete(view, plan, phase)
+                else:
+                    phase_complete(view, plan, phase, prepared)
 
         await self._run_on_target(run)
 

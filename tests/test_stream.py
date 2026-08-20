@@ -307,6 +307,86 @@ def test_target_stages_updates_before_host_dispatch(ortho_view, wait) -> None:
         stream.close()
 
 
+def test_target_stages_phase_before_host_dispatch(ortho_view, wait) -> None:
+    calls: Queue[Callable[[], None]] = Queue()
+
+    class PhaseStagingTarget(RecordingTarget):
+        def __init__(self) -> None:
+            super().__init__(Layout(kind="tiled", block_shape=(4, 4)))
+            self.stage_thread: int | None = None
+            self.publish_thread: int | None = None
+            self.prepared = None
+
+        def stage_phase(self, view, plan, phase):
+            self.stage_thread = threading.get_ident()
+            return (plan.target_level, phase)
+
+        def phase_complete(self, view, plan, phase, prepared) -> None:
+            self.publish_thread = threading.get_ident()
+            self.prepared = prepared
+
+    target = PhaseStagingTarget()
+    source = SimulatedSource([np.zeros((4, 4), dtype=np.uint8)], chunks=[(4, 4)])
+    stream = Stream(source, target, dispatch=calls.put)
+    main_thread = threading.get_ident()
+    try:
+        stream.update(ortho_view((4, 4), viewport=(64, 64)))
+        deadline = time.monotonic() + 5
+        while stream.status.state != "complete":
+            assert time.monotonic() < deadline
+            try:
+                callback = calls.get(timeout=0.05)
+            except Empty:
+                continue
+            callback()
+        assert target.stage_thread is not None
+        assert target.stage_thread != main_thread
+        assert target.publish_thread == main_thread
+        assert target.prepared == (0, 0)
+        assert stream.diagnostics.phase_stage_seconds > 0
+    finally:
+        stream.close()
+
+
+def test_target_stages_prepare_before_host_dispatch(ortho_view) -> None:
+    calls: Queue[Callable[[], None]] = Queue()
+
+    class PrepareStagingTarget(RecordingTarget):
+        def __init__(self) -> None:
+            super().__init__(Layout(kind="tiled", block_shape=(4, 4)))
+            self.stage_thread: int | None = None
+            self.prepare_thread: int | None = None
+
+        def stage_prepare(self, view, plan):
+            self.stage_thread = threading.get_ident()
+            return plan.target_level
+
+        def prepare(self, view, plan, prepared) -> None:
+            self.prepare_thread = threading.get_ident()
+            assert prepared == plan.target_level
+
+    target = PrepareStagingTarget()
+    source = SimulatedSource([np.zeros((4, 4), dtype=np.uint8)], chunks=[(4, 4)])
+    stream = Stream(source, target, dispatch=calls.put)
+    main_thread = threading.get_ident()
+    try:
+        stream.update(ortho_view((4, 4), viewport=(64, 64)))
+        deadline = time.monotonic() + 5
+        while stream.status.state != "complete":
+            assert time.monotonic() < deadline
+            try:
+                callback = calls.get(timeout=0.05)
+            except Empty:
+                continue
+            callback()
+        assert target.stage_thread is not None
+        assert target.stage_thread != main_thread
+        assert target.prepare_thread == main_thread
+        assert stream.diagnostics.prepare_stage_seconds > 0
+    finally:
+        stream.close()
+
+
 def test_stream_reads_rectilinear_native_chunks(ortho_view, wait) -> None:
     data = np.arange(7 * 9, dtype=np.uint16).reshape(7, 9)
     source = SimulatedSource(
