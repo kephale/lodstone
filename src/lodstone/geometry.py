@@ -9,6 +9,86 @@ import numpy as np
 from .model import Region
 
 
+def expand_region_to_chunk_grid(
+    region: Region,
+    shape: Sequence[int],
+    chunk_sizes: Sequence[Sequence[int]],
+    *,
+    itemsize: int,
+    max_bytes: int,
+    max_axis_extent: int | None = None,
+) -> Region:
+    """Expand a region to native chunk boundaries when the result fits.
+
+    Dataset-edge chunks are naturally rebalanced by the terminal grid
+    boundary. If the complete native-chunk union would violate a dense
+    memory or texture-axis limit, the original region is returned.
+    """
+
+    if region.ndim != len(shape) or region.ndim != len(chunk_sizes):
+        raise ValueError("region, shape, and chunk grid must have equal dimensionality")
+    if itemsize <= 0 or max_bytes <= 0:
+        raise ValueError("itemsize and byte budget must be positive")
+    if max_axis_extent is not None and max_axis_extent <= 0:
+        raise ValueError("max_axis_extent must be positive")
+
+    start = []
+    stop = []
+    for axis, (axis_size, sizes) in enumerate(zip(shape, chunk_sizes, strict=True)):
+        normalized = np.asarray(tuple(int(value) for value in sizes), dtype=np.int64)
+        if normalized.size == 0 or np.any(normalized <= 0):
+            raise ValueError("native chunk sizes must be positive")
+        if int(np.sum(normalized)) != int(axis_size):
+            raise ValueError("native chunk sizes must sum to the array shape")
+        boundaries = np.concatenate(([0], np.cumsum(normalized)))
+        first = max(
+            int(np.searchsorted(boundaries, region.start[axis], side="right")) - 1, 0
+        )
+        last = min(
+            int(np.searchsorted(boundaries, region.stop[axis], side="left")),
+            len(boundaries) - 1,
+        )
+        start.append(int(boundaries[first]))
+        stop.append(int(boundaries[last]))
+
+    expanded = Region(tuple(start), tuple(stop))
+    if max_axis_extent is not None and any(
+        extent > max_axis_extent for extent in expanded.shape
+    ):
+        return region
+    if expanded.size * itemsize > max_bytes:
+        return region
+    return expanded
+
+
+def native_chunks_in_region(
+    region: Region,
+    shape: Sequence[int],
+    chunk_sizes: Sequence[Sequence[int]],
+) -> int:
+    """Return the exact number of native chunks intersecting ``region``."""
+
+    if region.ndim != len(shape) or region.ndim != len(chunk_sizes):
+        raise ValueError("region, shape, and chunk grid must have equal dimensionality")
+    count = 1
+    for axis, (axis_size, sizes) in enumerate(zip(shape, chunk_sizes, strict=True)):
+        normalized = np.asarray(tuple(int(value) for value in sizes), dtype=np.int64)
+        if normalized.size == 0 or np.any(normalized <= 0):
+            raise ValueError("native chunk sizes must be positive")
+        if int(np.sum(normalized)) != int(axis_size):
+            raise ValueError("native chunk sizes must sum to the array shape")
+        boundaries = np.concatenate(([0], np.cumsum(normalized)))
+        first = max(
+            int(np.searchsorted(boundaries, region.start[axis], side="right")) - 1, 0
+        )
+        last = max(
+            int(np.searchsorted(boundaries, region.stop[axis], side="left")),
+            first + 1,
+        )
+        count *= last - first
+    return count
+
+
 def isotropic_extent_for_bytes(
     dtype: np.dtype | str | type,
     max_bytes: int,

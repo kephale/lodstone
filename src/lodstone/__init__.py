@@ -16,7 +16,9 @@ from .diagnostics import LevelDiagnosticArray, PlanComparison, PlanTrace
 from .geometry import (
     anisotropic_extent_for_bytes,
     clamp_region_to_budget,
+    expand_region_to_chunk_grid,
     isotropic_extent_for_bytes,
+    native_chunks_in_region,
 )
 from .model import (
     ChunkEvent,
@@ -90,10 +92,12 @@ __all__ = [
     "chunk_sizes_for",
     "chunk_slices_for",
     "clamp_region_to_budget",
+    "expand_region_to_chunk_grid",
     "fill_unloaded_chunks",
     "identity_transform",
     "isotropic_extent_for_bytes",
     "merge_plans",
+    "native_chunks_in_region",
     "nearest_resample_region",
     "normalize_chunk_sizes",
     "plan_from_slices",

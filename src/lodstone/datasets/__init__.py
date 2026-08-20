@@ -14,6 +14,7 @@ their docstrings and are imported lazily.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, cast
 
@@ -49,6 +50,7 @@ def open_ome_zarr(
     zarr_format: int | None = None,
     anon: bool = True,
     squeeze: bool = True,
+    fixed_index: Mapping[int | str, int] | None = None,
 ):
     """Open a local or remote OME-Zarr for progressive loading.
 
@@ -74,6 +76,10 @@ def open_ome_zarr(
         Drop leading singleton dimensions (e.g. 5D ``(1,1,1,H,W)`` IDR
         data) down to the spatial axes, adjusting ``scale``/``translate``
         to match.
+    fixed_index : mapping of int or str to int, optional
+        Select fixed indices for numeric or named axes before exposing the
+        arrays. This keeps axes such as time and channel lazy while returning
+        only the remaining spatial dimensions.
 
     Returns
     -------
@@ -91,6 +97,7 @@ def open_ome_zarr(
         storage_options={"anon": anon} if path.startswith("s3://") else None,
         cache_bytes=cache_bytes if _is_remote(path) else None,
         squeeze=squeeze,
+        fixed_index=fixed_index,
     )
     transform = source.pyramid.levels[0].voxel_to_world
     ndim = source.pyramid.ndim

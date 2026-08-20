@@ -105,6 +105,47 @@ def test_open_ome_zarr_num_levels_and_no_translate(tmp_path):
     assert translate is None
 
 
+@pytest.mark.parametrize("fixed_index", ({"t": 1, "c": 2}, {0: 1, 1: 2}))
+def test_open_ome_zarr_fixed_axes(tmp_path, fixed_index):
+    """The dataset helper accepts named and numeric lazy axis selections."""
+    import zarr
+
+    root = tmp_path / "fixed.zarr"
+    group = zarr.open_group(str(root), mode="w", zarr_format=2)
+    values = np.arange(2 * 3 * 4 * 8 * 10, dtype=np.uint16).reshape(2, 3, 4, 8, 10)
+    array = group.create_array(
+        name="0", shape=values.shape, chunks=(1, 1, 2, 4, 5), dtype="u2"
+    )
+    array[:] = values
+    group.attrs["multiscales"] = [
+        {
+            "axes": ["t", "c", "z", "y", "x"],
+            "datasets": [
+                {
+                    "path": "0",
+                    "coordinateTransformations": [
+                        {
+                            "type": "scale",
+                            "scale": [10.0, 20.0, 2.0, 3.0, 4.0],
+                        },
+                        {
+                            "type": "translation",
+                            "translation": [1.0, 2.0, 3.0, 4.0, 5.0],
+                        },
+                    ],
+                }
+            ],
+        }
+    ]
+
+    arrays, scale, translate = open_ome_zarr(str(root), fixed_index=fixed_index)
+
+    assert arrays[0].shape == (4, 8, 10)
+    np.testing.assert_array_equal(arrays[0][:], values[1, 2])
+    assert scale == [2.0, 3.0, 4.0]
+    assert translate == [3.0, 4.0, 5.0]
+
+
 def test_open_ome_zarr_nested_group(tmp_path):
     """multiscales metadata one group down is still discovered."""
     import zarr
