@@ -147,16 +147,33 @@ class Stream:
 
         return disconnect
 
-    def update(self, view: View) -> Plan:
-        """Plan and start streaming the newest view, returning its plan."""
-
+    def plan(self, view: View) -> Plan:
+        """Plan a view without changing the active generation."""
         with self._state_lock:
             if self._closed:
                 raise RuntimeError("stream is closed")
-            available = frozenset(self._available)
+            # A target may replace its pending resident window when an active
+            # pass is superseded. Redeliver desired tiles in that case instead
+            # of assuming every tile delivered to the canceled pass remains
+            # represented by the new target storage. Native chunk caching
+            # keeps this conservative replay local whenever possible.
+            available = (
+                frozenset(self._available)
+                if self._status.state == "complete"
+                else frozenset()
+            )
         layout = self.target.layout(view, self.source.pyramid)
-        plan = self.planner.plan(self.source.pyramid, view, layout, available=available)
-        return self._start(view, plan, layout)
+        return self.planner.plan(
+            self.source.pyramid,
+            view,
+            layout,
+            available=available,
+        )
+
+    def update(self, view: View) -> Plan:
+        """Plan and start streaming the newest view, returning its plan."""
+
+        return self.submit(view, self.plan(view))
 
     def submit(self, view: View, plan: Plan) -> Plan:
         """Execute an adapter-supplied plan for the newest view.

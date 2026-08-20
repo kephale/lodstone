@@ -37,6 +37,21 @@ def test_stream_reuses_native_chunks_for_smaller_display_tiles(
         stream.close()
 
 
+def test_plan_does_not_start_or_replace_a_generation(ortho_view) -> None:
+    source = SimulatedSource([np.zeros((8, 8), dtype=np.uint8)], chunks=[(4, 4)])
+    target = RecordingTarget(Layout(block_shape=(4, 4)))
+    stream = Stream(source, target, planner=Planner(progressive=False))
+    try:
+        plan = stream.plan(ortho_view((8, 8), viewport=(64, 64)))
+
+        assert plan.wanted
+        assert stream.status.generation == 0
+        assert stream.status.state == "idle"
+        assert target.updates == []
+    finally:
+        stream.close()
+
+
 def test_stream_diagnostics_separate_tiles_from_native_reads(ortho_view, wait) -> None:
     data = np.arange(64, dtype=np.uint16).reshape(8, 8)
     source = SimulatedSource([data], chunks=[(4, 4)])
@@ -292,6 +307,28 @@ def test_new_generation_rejects_stale_delivery(ortho_view, wait) -> None:
         assert target.updates
         assert all(np.all(update.data == 1) for update in target.updates)
         assert all(update.key.selection[0] == 1 for update in target.updates)
+    finally:
+        stream.close()
+
+
+def test_loading_replan_redelivers_tiles_from_superseded_pass(
+    ortho_view, wait
+) -> None:
+    data = np.arange(16 * 16, dtype=np.uint16).reshape(16, 16)
+    source = SimulatedSource([data], chunks=[(4, 4)], latency=0.05)
+    target = RecordingTarget(Layout(kind="tiled", block_shape=(4, 4)))
+    stream = Stream(source, target, planner=Planner(progressive=False), batch_size=1)
+    view = ortho_view(data.shape, viewport=(128, 128))
+    try:
+        first = stream.update(view)
+        wait(lambda: bool(stream.available) and stream.status.state == "loading")
+
+        second = stream.update(view)
+
+        assert len(stream.available) < len(first.desired)
+        assert len(second.wanted) == len(second.desired)
+        wait(lambda: stream.status.state == "complete")
+        assert len(target.updates) >= len(second.desired)
     finally:
         stream.close()
 
