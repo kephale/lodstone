@@ -148,6 +148,8 @@ the image's contrast or texture values.
 - **View** — displayed axes, hidden-axis selections, viewport, and camera matrix.
 - **Target** — desired dense/tiled/bricked layout and update delivery.
 - **Planner** — deterministic visible-tile and LOD selection.
+- **PlanCoverage** — order-independent target level, tile-region, retention,
+  and hidden-axis identity for suppressing equivalent renderer submissions.
 - **Stream** — cancellation, priorities, native-chunk reuse, CPU caching,
   batching, progressive delivery, and stale-generation rejection.
 - **Composition** — transform-aware nearest-neighbor backdrop sampling and
@@ -160,6 +162,11 @@ Storage chunks and display tiles are deliberately distinct. A target may ask
 for 32-cubed bricks while the Zarr source stores 16 by 64 by 64 chunks.
 Lodstone reads each overlapping native chunk once and assembles the requested
 display updates from its decoded cache.
+
+Progressive planning starts at the coarsest level by default. Renderer
+integrations can set `Planner(max_initial_voxel_footprint=...)` to choose the
+coarsest initial level whose projected voxels stay within that many screen
+pixels; the normal target level and napari's default behavior are unchanged.
 
 `stream.diagnostics` separates renderer tiles from native storage activity for
 the current or most recent generation. `stream.cache_events` records recent

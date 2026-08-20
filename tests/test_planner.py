@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 import numpy as np
+import pytest
 
 from lodstone import (
     Layout,
@@ -79,6 +80,37 @@ def test_progressive_plan_can_skip_intermediate_levels(ortho_view) -> None:
         (tile.level for tile in plan.wanted), reverse=True
     )
     assert {tile.level for tile in plan.desired} == {0, 2}
+
+
+def test_progressive_plan_can_adapt_initial_level_to_voxel_footprint(
+    ortho_view,
+) -> None:
+    source = _pyramid()
+    view = ortho_view((256, 256), viewport=(512, 512))
+    plan = Planner(
+        progressive=True,
+        max_intermediate_levels=0,
+        max_initial_voxel_footprint=4.1,
+    ).plan(source.pyramid, view, Layout(block_shape=(32, 32)))
+
+    assert {tile.level for tile in plan.desired} == {0, 1}
+    assert plan.desired[0].level == 1
+
+
+def test_progressive_initial_level_remains_coarsest_by_default(ortho_view) -> None:
+    source = _pyramid()
+    view = ortho_view((256, 256), viewport=(512, 512))
+    plan = Planner(progressive=True, max_intermediate_levels=0).plan(
+        source.pyramid, view, Layout(block_shape=(32, 32))
+    )
+
+    assert {tile.level for tile in plan.desired} == {0, 2}
+
+
+@pytest.mark.parametrize("value", [0, -1, float("inf"), float("nan")])
+def test_progressive_initial_voxel_footprint_must_be_positive_and_finite(value) -> None:
+    with pytest.raises(ValueError, match="max_initial_voxel_footprint"):
+        Planner(max_initial_voxel_footprint=value)
 
 
 def test_lod_hysteresis_resists_small_level_boundary_crossings(ortho_view) -> None:

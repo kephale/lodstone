@@ -21,6 +21,7 @@ class Planner:
         lod_bias: float = 1.0,
         progressive: bool = True,
         max_intermediate_levels: int | None = None,
+        max_initial_voxel_footprint: float | None = None,
     ) -> None:
         if lod_bias <= 0:
             raise ValueError("lod_bias must be positive")
@@ -32,9 +33,17 @@ class Planner:
             raise ValueError(
                 "max_intermediate_levels must be a nonnegative integer or None"
             )
+        if max_initial_voxel_footprint is not None and (
+            not math.isfinite(max_initial_voxel_footprint)
+            or max_initial_voxel_footprint <= 0
+        ):
+            raise ValueError(
+                "max_initial_voxel_footprint must be positive and finite or None"
+            )
         self.lod_bias = float(lod_bias)
         self.progressive = bool(progressive)
         self.max_intermediate_levels = max_intermediate_levels
+        self.max_initial_voxel_footprint = max_initial_voxel_footprint
 
     def plan(
         self,
@@ -68,7 +77,7 @@ class Planner:
             if _tiles_nbytes(target_tiles, pyramid) <= layout.memory_limit:
                 break
             target_level += 1
-        levels = self._levels(len(pyramid.levels), target_level)
+        levels = self._levels(pyramid, view, target_level)
 
         wanted: list[Tile] = []
         desired: list[Tile] = []
@@ -113,7 +122,7 @@ class Planner:
         if target_region.ndim != pyramid.ndim:
             raise ValueError("target region dimensionality does not match pyramid")
 
-        levels = self._levels(len(pyramid.levels), target_level)
+        levels = self._levels(pyramid, view, target_level)
         desired: list[Tile] = []
         wanted: list[Tile] = []
         retain: set[TileKey] = set()
@@ -250,10 +259,21 @@ class Planner:
                 break
         return selected
 
-    def _levels(self, level_count: int, target_level: int) -> list[int]:
+    def _levels(self, pyramid: Pyramid, view: View, target_level: int) -> list[int]:
         if not self.progressive:
             return [target_level]
-        coarsest = level_count - 1
+        coarsest = len(pyramid.levels) - 1
+        footprint_limit = self.max_initial_voxel_footprint
+        if footprint_limit is not None:
+            coarsest = target_level
+            for index in range(target_level + 1, len(pyramid.levels)):
+                footprint = _voxel_footprint_px(
+                    pyramid.levels[index].voxel_to_world,
+                    pyramid.levels[index].shape,
+                    view,
+                )
+                if footprint <= footprint_limit:
+                    coarsest = index
         levels = list(range(coarsest, target_level - 1, -1))
         limit = self.max_intermediate_levels
         if limit is None or len(levels) <= limit + 2:
