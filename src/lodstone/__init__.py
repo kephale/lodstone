@@ -23,10 +23,12 @@ from .geometry import (
 from .model import (
     ChunkEvent,
     ChunkState,
+    InteractionState,
     Layout,
     Level,
     Plan,
     PlanCoverage,
+    PlanDelta,
     Pyramid,
     Region,
     Status,
@@ -46,18 +48,20 @@ from .planner import (
 from .resident import (
     ResidentArrays,
     ResidentChange,
+    ResidentLease,
     ResidentTransition,
     ResidentWindow,
 )
 from .source import Source
 from .stream import Stream
-from .target import PassTarget, PhaseTarget, StagingTarget, Target
+from .target import PassTarget, PhaseTarget, ResidencyLease, StagingTarget, Target
 from .virtual import MultiScaleVirtualData, VirtualArrayView, VirtualData
 
 __all__ = [
     "ChunkEvent",
     "ChunkGrid",
     "ChunkState",
+    "InteractionState",
     "Layout",
     "Level",
     "LevelDiagnosticArray",
@@ -67,12 +71,15 @@ __all__ = [
     "Plan",
     "PlanComparison",
     "PlanCoverage",
+    "PlanDelta",
     "PlanTrace",
     "Planner",
     "Pyramid",
     "Region",
+    "ResidencyLease",
     "ResidentArrays",
     "ResidentChange",
+    "ResidentLease",
     "ResidentTransition",
     "ResidentWindow",
     "Source",

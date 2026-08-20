@@ -7,6 +7,7 @@ import pytest
 
 from lodstone import (
     Layout,
+    Plan,
     Planner,
     Region,
     Tile,
@@ -16,6 +17,25 @@ from lodstone import (
     plan_from_slices,
 )
 from lodstone.sources import ArrayPyramidSource
+
+
+def test_plan_delta_retains_coverage_and_reports_priority_changes() -> None:
+    key0 = TileKey(0, (0, 0), ())
+    key1 = TileKey(0, (0, 1), ())
+    key2 = TileKey(0, (0, 2), ())
+    tile0 = Tile(key0, Region((0, 0), (4, 4)), 1.0)
+    tile1 = Tile(key1, Region((0, 4), (4, 8)), 2.0)
+    first = Plan((tile0, tile1), frozenset({key0, key1}), 0, (tile0, tile1))
+    moved0 = replace(tile0, priority=-1.0)
+    tile2 = Tile(key2, Region((0, 8), (4, 12)), 3.0)
+    second = Plan((moved0, tile2), frozenset({key0, key2}), 0, (moved0, tile2))
+
+    delta = second.delta(first)
+
+    assert delta.retained == frozenset({key0})
+    assert delta.requested == (tile2,)
+    assert delta.reprioritized == (key0,)
+    assert delta.released == frozenset({key1})
 
 
 def _pyramid() -> ArrayPyramidSource:

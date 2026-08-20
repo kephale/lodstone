@@ -6,6 +6,7 @@ from lodstone import (
     Plan,
     Region,
     ResidentArrays,
+    ResidentLease,
     Tile,
     TileKey,
     Update,
@@ -101,6 +102,28 @@ def test_shifted_window_preserves_overlap_and_loaded_keys() -> None:
     assert np.all(shifted.data[:10, :10] == 1)
     assert np.all(shifted.data[10:, :] == 0)
     assert first.key not in shifted.key_regions
+
+
+def test_resident_lease_tracks_confirmed_storage_and_release() -> None:
+    source = ArrayPyramidSource([np.zeros((20, 20), dtype=np.uint8)], chunks=[(10, 10)])
+    arrays = ResidentArrays(source.pyramid)
+    first = _tile(0, (0, 0), (10, 10))
+    second = _tile(0, (0, 10), (10, 20))
+    plan = _plan(first, second)
+    arrays.prepare(plan)
+    lease = ResidentLease(arrays, frozenset({first.key, second.key}))
+
+    assert lease.available_keys == frozenset()
+    assert lease.pending_keys == frozenset({first.key, second.key})
+
+    arrays.apply(
+        [Update(first.key, first.region, np.ones((10, 10), np.uint8), np.eye(3))]
+    )
+    assert lease.available_keys == frozenset({first.key})
+    assert lease.pending_keys == frozenset({second.key})
+
+    lease.release({first.key})
+    assert lease.available_keys == frozenset()
 
 
 def test_complete_keeps_target_and_retires_coarse_ladder() -> None:

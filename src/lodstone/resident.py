@@ -69,6 +69,32 @@ class ResidentTransition:
     retired: tuple[ResidentWindow, ...] = ()
 
 
+@dataclass(slots=True)
+class ResidentLease:
+    """Dynamic lease over keys held by a :class:`ResidentArrays` instance."""
+
+    resident: ResidentArrays
+    desired_keys: frozenset[TileKey]
+
+    @property
+    def available_keys(self) -> frozenset[TileKey]:
+        stored = {
+            key
+            for window in _unique_windows(
+                self.resident.active, self.resident.pending or {}
+            )
+            for key in window.key_regions
+        }
+        return frozenset(stored)
+
+    @property
+    def pending_keys(self) -> frozenset[TileKey]:
+        return self.desired_keys - self.available_keys
+
+    def release(self, keys: Collection[TileKey]) -> None:
+        self.resident.discard(keys)
+
+
 class ResidentArrays:
     """Manage bounded dense CPU windows for a renderer-specific target.
 

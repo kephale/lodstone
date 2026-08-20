@@ -148,8 +148,8 @@ the image's contrast or texture values.
 - **View** — displayed axes, hidden-axis selections, viewport, and camera matrix.
 - **Target** — desired dense/tiled/bricked layout and update delivery.
 - **Planner** — deterministic visible-tile and LOD selection.
-- **PlanCoverage** — order-independent target level, tile-region, retention,
-  and hidden-axis identity for suppressing equivalent renderer submissions.
+- **PlanCoverage / PlanDelta** — stable coverage identity plus retained,
+  requested, reprioritized, and released work across camera changes.
 - **Stream** — cancellation, priorities, native-chunk reuse, CPU caching,
   batching, progressive delivery, and stale-generation rejection.
 - **Composition** — transform-aware nearest-neighbor backdrop sampling and
@@ -215,6 +215,18 @@ call `stream.pause()` and `stream.resume()` without discarding the active pass.
 `bytes_per_second` can pace aggregate source reads when decoding or remote I/O
 would otherwise compete with interaction and rendering.
 
+`prepare` may return a residency lease with dynamic `available_keys` and
+`pending_keys` sets plus `release(keys)`. A lease confirms which target storage
+survives replanning, allowing the stream to retain delivered overlap while it
+keeps loading native chunks shared by the old and new request. Queued work is
+rebuilt in the newest priority order and work outside the new coverage is
+canceled. Legacy targets that return no lease retain conservative pass
+replacement behavior. `stream.delta` exposes the latest `PlanDelta`.
+
+Viewers may attach `InteractionState` to a `View` to describe camera motion
+and angular, translation, and zoom velocity. Existing integrations can omit
+it and retain their current policy.
+
 Targets that need an atomic presentation point between coarse-to-fine stages
 may also implement `phase_complete(view, plan, phase)`. The hook is optional;
 existing targets continue to receive the same prepare, apply, complete, and
@@ -227,7 +239,7 @@ window-relative writes, and retires coarse/replaced storage on completion.
 The viewer still owns the corresponding grid, texture, or volume objects:
 
 ```python
-from lodstone import Layout, ResidentArrays
+from lodstone import Layout, ResidentArrays, ResidentLease
 
 resident = ResidentArrays(source.pyramid, compose=True)
 
@@ -240,6 +252,8 @@ def prepare(view, plan):
     transition = resident.prepare(plan)
     # Create renderer resources for transition.prepared and remove
     # transition.retired resources.
+    desired = plan.desired or plan.wanted
+    return ResidentLease(resident, frozenset(tile.key for tile in desired))
 
 
 def apply(updates):

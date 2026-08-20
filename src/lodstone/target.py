@@ -22,10 +22,23 @@ class Target(Protocol):
 
 
 @runtime_checkable
+class ResidencyLease(Protocol):
+    """Target-confirmed storage that survives request replanning."""
+
+    @property
+    def available_keys(self) -> frozenset[TileKey]: ...
+
+    @property
+    def pending_keys(self) -> frozenset[TileKey]: ...
+
+    def release(self, keys: Collection[TileKey]) -> None: ...
+
+
+@runtime_checkable
 class PassTarget(Protocol):
     """Optional lifecycle implemented by resident-window render targets."""
 
-    def prepare(self, view: View, plan: Plan) -> None:
+    def prepare(self, view: View, plan: Plan) -> ResidencyLease | None:
         """Prepare target residency before the pass starts."""
         ...
 

@@ -17,6 +17,7 @@ from .model import (
     ChunkEvent,
     ChunkState,
     Plan,
+    PlanDelta,
     Region,
     Status,
     StreamDiagnostics,
@@ -27,7 +28,7 @@ from .model import (
 )
 from .planner import Planner
 from .source import Source
-from .target import Target
+from .target import ResidencyLease, Target
 
 Dispatch = Callable[[Callable[[], None]], None]
 StatusCallback = Callable[[Status], None]
@@ -82,6 +83,9 @@ class Stream:
         self._generation = 0
         self._status = Status()
         self._available: set[TileKey] = set()
+        self._lease: Any | None = None
+        self._plan: Plan | None = None
+        self._delta = PlanDelta(frozenset(), (), (), frozenset())
         self._status_callbacks: list[StatusCallback] = []
         self._closed = False
         self._paused = False
@@ -116,7 +120,16 @@ class Stream:
     @property
     def available(self) -> frozenset[TileKey]:
         with self._state_lock:
+            if self._lease is not None:
+                return frozenset(self._lease.available_keys)
             return frozenset(self._available)
+
+    @property
+    def delta(self) -> PlanDelta:
+        """Coverage changes applied by the current or most recent request."""
+
+        with self._state_lock:
+            return self._delta
 
     @property
     def diagnostics(self) -> StreamDiagnostics:
@@ -158,16 +171,14 @@ class Stream:
         with self._state_lock:
             if self._closed:
                 raise RuntimeError("stream is closed")
-            # A target may replace its pending resident window when an active
-            # pass is superseded. Redeliver desired tiles in that case instead
-            # of assuming every tile delivered to the canceled pass remains
-            # represented by the new target storage. Native chunk caching
-            # keeps this conservative replay local whenever possible.
-            available = (
-                frozenset(self._available)
-                if self._status.state == "complete"
-                else frozenset()
-            )
+            # Lease-aware targets explicitly confirm storage that survives a
+            # replan. Legacy targets retain conservative generation behavior.
+            if self._lease is not None:
+                available = frozenset(self._lease.available_keys)
+            elif self._status.state == "complete":
+                available = frozenset(self._available)
+            else:
+                available = frozenset()
         layout = self.target.layout(view, self.source.pyramid)
         return self.planner.plan(
             self.source.pyramid,
@@ -205,6 +216,8 @@ class Stream:
                 raise RuntimeError("stream is closed")
             self._generation += 1
             generation = self._generation
+            self._delta = plan.delta(self._plan)
+            self._plan = plan
             available = frozenset(self._available)
             cache_chunks = self._diagnostics.cache_chunks
             cache_bytes = self._diagnostics.cache_bytes
@@ -332,11 +345,16 @@ class Stream:
         completed = 0
         bytes_read = 0
         try:
+            await self._reconcile_chunk_tasks(self._native_chunk_keys(plan.wanted))
             await self._wait_until_resumed()
-            await self._deliver_prepare(generation, view, plan)
-            phases = sorted({tile.phase for tile in plan.wanted})
+            lease = await self._deliver_prepare(generation, view, plan)
+            available = (
+                frozenset(lease.available_keys) if lease is not None else frozenset()
+            )
+            wanted = tuple(tile for tile in plan.wanted if tile.key not in available)
+            phases = sorted({tile.phase for tile in wanted})
             for phase in phases:
-                phase_tiles = [tile for tile in plan.wanted if tile.phase == phase]
+                phase_tiles = [tile for tile in wanted if tile.phase == phase]
                 for window in self._tile_windows(phase_tiles):
                     await self._wait_until_resumed()
                     if not self._is_current(generation):
@@ -361,11 +379,11 @@ class Stream:
                         Status(
                             generation=generation,
                             state="loading",
-                            wanted=len(plan.wanted),
+                            wanted=len(wanted),
                             resident=len(self.available),
-                            inflight=max(0, len(plan.wanted) - completed),
+                            inflight=max(0, len(wanted) - completed),
                             bytes_read=bytes_read,
-                            progress=completed / len(plan.wanted),
+                            progress=completed / len(wanted),
                         )
                     )
                 await self._deliver_phase_complete(generation, view, plan, phase)
@@ -381,7 +399,7 @@ class Stream:
                 Status(
                     generation=generation,
                     state="complete",
-                    wanted=len(plan.wanted),
+                    wanted=len(wanted),
                     resident=len(self.available),
                     bytes_read=bytes_read,
                     progress=1.0,
@@ -404,6 +422,21 @@ class Stream:
                         error=error,
                     )
                 )
+
+    async def _reconcile_chunk_tasks(
+        self, desired: frozenset[tuple[int, tuple[int, ...]]]
+    ) -> None:
+        """Keep loading overlap and rebuild queued work in newest priority order."""
+
+        for key, task in tuple(self._chunk_tasks.items()):
+            state = self._chunk_states.get(key, ChunkState.NEW)
+            if key not in desired or state is ChunkState.QUEUED:
+                if self._chunk_tasks.get(key) is task:
+                    self._chunk_tasks.pop(key, None)
+                task.cancel()
+        # Let cancellation release semaphore waiters before requesting the
+        # newest ordered tile windows.
+        await asyncio.sleep(0)
 
     def _tile_windows(self, tiles: Sequence[Tile]) -> list[list[Tile]]:
         """Batch tiles without exceeding count or decoded-byte backpressure."""
@@ -686,16 +719,27 @@ class Stream:
 
         await self._run_on_target(apply)
 
-    async def _deliver_prepare(self, generation: int, view: View, plan: Plan) -> None:
+    async def _deliver_prepare(
+        self, generation: int, view: View, plan: Plan
+    ) -> Any | None:
         prepare = getattr(self.target, "prepare", None)
         if prepare is None:
-            return
+            return None
+
+        result: Any | None = None
 
         def run() -> None:
+            nonlocal result
             if self._is_current(generation):
-                prepare(view, plan)
+                result = prepare(view, plan)
 
         await self._run_on_target(run)
+        lease = result if isinstance(result, ResidencyLease) else None
+        if lease is not None and self._is_current(generation):
+            with self._state_lock:
+                self._lease = lease
+                self._available = set(lease.available_keys)
+        return lease
 
     async def _deliver_complete(self, generation: int, view: View, plan: Plan) -> None:
         complete = getattr(self.target, "complete", None)
@@ -727,7 +771,10 @@ class Stream:
         def discard() -> None:
             if not self._is_current(generation):
                 return
-            self.target.discard(keys)
+            if self._lease is None:
+                self.target.discard(keys)
+            else:
+                self._lease.release(keys)
             with self._state_lock:
                 self._available.difference_update(keys)
 

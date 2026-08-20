@@ -154,6 +154,25 @@ class Pyramid:
 
 
 @dataclass(frozen=True, slots=True)
+class InteractionState:
+    """Optional motion metadata supplied by an interactive viewer."""
+
+    moving: bool = False
+    angular_velocity: float = 0.0
+    translation_velocity: float = 0.0
+    zoom_velocity: float = 0.0
+
+    def __post_init__(self) -> None:
+        velocities = (
+            self.angular_velocity,
+            self.translation_velocity,
+            self.zoom_velocity,
+        )
+        if any(not np.isfinite(value) for value in velocities):
+            raise ValueError("interaction velocities must be finite")
+
+
+@dataclass(frozen=True, slots=True)
 class View:
     """A host-neutral snapshot of a 2-D or 3-D viewer camera and selection.
 
@@ -167,6 +186,7 @@ class View:
     viewport: tuple[int, int]
     world_to_clip: npt.NDArray[np.float64]
     eye: tuple[float, float, float] | None = None
+    interaction: InteractionState | None = None
 
     def __post_init__(self) -> None:
         if len(self.displayed_axes) not in (2, 3):
@@ -252,6 +272,16 @@ class PlanCoverage:
 
 
 @dataclass(frozen=True, slots=True)
+class PlanDelta:
+    """Stable coverage changes between two successive plans."""
+
+    retained: frozenset[TileKey]
+    requested: tuple[Tile, ...]
+    reprioritized: tuple[TileKey, ...]
+    released: frozenset[TileKey]
+
+
+@dataclass(frozen=True, slots=True)
 class Plan:
     """A complete desired tile set and the reads needed to reach it.
 
@@ -278,6 +308,42 @@ class Plan:
             retained_keys=self.retain,
             hidden_axis_selections=frozenset(key.selection for key in keys),
         )
+
+    def delta(self, previous: Plan | None) -> PlanDelta:
+        """Compare stable coverage while preserving current request order."""
+
+        current_tiles = self.desired or self.wanted
+        current = {tile.key: tile for tile in current_tiles}
+        if previous is None:
+            return PlanDelta(
+                retained=frozenset(),
+                requested=tuple(self.wanted),
+                reprioritized=(),
+                released=frozenset(),
+            )
+        previous_tiles = previous.desired or previous.wanted
+        old = {tile.key: tile for tile in previous_tiles}
+        retained = frozenset(
+            key
+            for key, tile in current.items()
+            if key in old and old[key].region == tile.region
+        )
+        requested = tuple(tile for tile in self.wanted if tile.key not in retained)
+        reprioritized = tuple(
+            tile.key
+            for tile in current_tiles
+            if tile.key in retained
+            and (
+                old[tile.key].priority != tile.priority
+                or old[tile.key].phase != tile.phase
+            )
+        )
+        released = frozenset(
+            key
+            for key, tile in old.items()
+            if key not in retained or key not in self.retain
+        )
+        return PlanDelta(retained, requested, reprioritized, released)
 
 
 @dataclass(frozen=True, slots=True)

@@ -13,6 +13,8 @@ from lodstone import (
     Plan,
     Planner,
     Region,
+    ResidentArrays,
+    ResidentLease,
     Stream,
     Tile,
     TileKey,
@@ -48,6 +50,98 @@ def test_plan_does_not_start_or_replace_a_generation(ortho_view) -> None:
         assert stream.status.generation == 0
         assert stream.status.state == "idle"
         assert target.updates == []
+    finally:
+        stream.close()
+
+
+def test_lease_confirmed_tiles_are_reused_while_request_is_loading(
+    ortho_view, wait
+) -> None:
+    class LeaseTarget(RecordingTarget):
+        def __init__(self, source) -> None:
+            super().__init__(Layout(block_shape=(4, 4), squeeze_hidden=False))
+            self.resident = ResidentArrays(source.pyramid)
+
+        def prepare(self, _view, plan):
+            self.resident.prepare(plan)
+            desired = plan.desired or plan.wanted
+            return ResidentLease(self.resident, frozenset(tile.key for tile in desired))
+
+        def apply(self, updates) -> None:
+            self.resident.apply(updates)
+            super().apply(updates)
+
+        def discard(self, keys) -> None:
+            self.resident.discard(keys)
+            super().discard(keys)
+
+        def complete(self, _view, plan) -> None:
+            self.resident.complete(plan)
+
+    source = SimulatedSource(
+        [np.zeros((8, 8), dtype=np.uint8)], chunks=[(4, 4)], latency=0.04
+    )
+    target = LeaseTarget(source)
+    stream = Stream(
+        source,
+        target,
+        planner=Planner(progressive=False),
+        workers=1,
+        batch_size=1,
+    )
+    view = ortho_view((8, 8), viewport=(64, 64))
+    try:
+        stream.update(view)
+        wait(lambda: stream.status.state == "loading" and len(target.updates) == 1)
+
+        replacement = stream.plan(view)
+
+        assert len(replacement.wanted) == 3
+        assert target.updates[0].key not in {tile.key for tile in replacement.wanted}
+    finally:
+        stream.close()
+
+
+def test_replan_keeps_loading_overlap_and_cancels_obsolete_queue(
+    ortho_view, wait
+) -> None:
+    source = SimulatedSource(
+        [np.zeros((4, 12), dtype=np.uint8)], chunks=[(4, 4)], latency=0.08
+    )
+    target = RecordingTarget(Layout(block_shape=(4, 4)))
+    stream = Stream(
+        source,
+        target,
+        planner=Planner(progressive=False),
+        workers=1,
+        batch_size=3,
+    )
+    view = ortho_view((4, 12), viewport=(64, 64))
+    tiles = tuple(
+        Tile(
+            TileKey(0, (0, index), ()),
+            Region((0, index * 4), (4, (index + 1) * 4)),
+            float(index),
+        )
+        for index in range(3)
+    )
+    first = Plan(tiles, frozenset(tile.key for tile in tiles), 0, tiles)
+    replacement_tiles = (tiles[0], tiles[2])
+    replacement = Plan(
+        replacement_tiles,
+        frozenset(tile.key for tile in replacement_tiles),
+        0,
+        replacement_tiles,
+    )
+    try:
+        stream.submit(view, first)
+        wait(lambda: stream.chunk_states.get((0, (0, 0))) is ChunkState.LOADING)
+        stream.submit(view, replacement)
+        wait(lambda: stream.status.state == "complete")
+
+        assert source.reads.count((0, tiles[0].region)) == 1
+        assert (0, tiles[1].region) not in source.reads
+        assert (0, tiles[2].region) in source.reads
     finally:
         stream.close()
 
