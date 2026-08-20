@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 
 from lodstone import (
     Layout,
     Planner,
     Region,
+    Tile,
+    TileKey,
     available_tile_keys,
     merge_plans,
     plan_from_slices,
@@ -149,6 +153,55 @@ def test_available_tiles_are_retained_but_not_requested(ortho_view) -> None:
     assert available <= updated.retain
     assert available.isdisjoint(tile.key for tile in updated.wanted)
     assert available <= {tile.key for tile in updated.desired}
+
+
+def test_plan_coverage_ignores_tile_order_priority_and_phase(ortho_view) -> None:
+    source = _pyramid()
+    view = ortho_view((256, 256), viewport=(512, 512))
+    plan = Planner(progressive=True).plan(
+        source.pyramid, view, Layout(block_shape=(32, 32))
+    )
+    reordered = replace(
+        plan,
+        desired=tuple(
+            replace(tile, priority=-tile.priority, phase=tile.phase + 10)
+            for tile in reversed(plan.desired)
+        ),
+    )
+
+    assert reordered.coverage == plan.coverage
+
+
+def test_plan_coverage_detects_regions_retention_and_hidden_selection(
+    ortho_view,
+) -> None:
+    source = _pyramid()
+    view = ortho_view((256, 256), viewport=(512, 512))
+    plan = Planner(progressive=False).plan(
+        source.pyramid, view, Layout(block_shape=(32, 32))
+    )
+    tile = plan.desired[0]
+    shifted_region = Region(
+        (tile.region.start[0] + 1, *tile.region.start[1:]),
+        tile.region.stop,
+    )
+    changed_region = replace(
+        plan,
+        desired=(replace(tile, region=shifted_region), *plan.desired[1:]),
+    )
+    changed_retention = replace(plan, retain=frozenset())
+    selected_key = TileKey(tile.level, tile.key.grid_index, (4, -1))
+    changed_selection = replace(
+        plan,
+        desired=(
+            Tile(selected_key, tile.region, tile.priority, tile.phase),
+            *plan.desired[1:],
+        ),
+    )
+
+    assert changed_region.coverage != plan.coverage
+    assert changed_retention.coverage != plan.coverage
+    assert changed_selection.coverage != plan.coverage
 
 
 def test_3d_tiles_are_prioritized_front_to_back(ortho_view) -> None:

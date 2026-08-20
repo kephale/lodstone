@@ -237,6 +237,21 @@ class Tile:
 
 
 @dataclass(frozen=True, slots=True)
+class PlanCoverage:
+    """Order-independent identity of the data covered by a plan.
+
+    Tile priority and progressive phase are intentionally excluded.  Hidden-axis
+    selections are included explicitly as well as through :class:`TileKey`, so
+    integrations can inspect them without decoding tile identities.
+    """
+
+    target_level: int
+    tile_regions: frozenset[tuple[TileKey, Region]]
+    retained_keys: frozenset[TileKey]
+    hidden_axis_selections: frozenset[tuple[int, ...]]
+
+
+@dataclass(frozen=True, slots=True)
 class Plan:
     """A complete desired tile set and the reads needed to reach it.
 
@@ -250,6 +265,19 @@ class Plan:
     retain: frozenset[TileKey]
     target_level: int
     desired: tuple[Tile, ...] = ()
+
+    @property
+    def coverage(self) -> PlanCoverage:
+        """Return the requested coverage, ignoring delivery order and priority."""
+
+        tiles = self.desired or self.wanted
+        keys = (*[tile.key for tile in tiles], *self.retain)
+        return PlanCoverage(
+            target_level=self.target_level,
+            tile_regions=frozenset((tile.key, tile.region) for tile in tiles),
+            retained_keys=self.retain,
+            hidden_axis_selections=frozenset(key.selection for key in keys),
+        )
 
 
 @dataclass(frozen=True, slots=True)
