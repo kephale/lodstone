@@ -64,6 +64,53 @@ def test_progressive_plan_puts_coarse_coverage_first(ortho_view) -> None:
     assert {tile.level for tile in plan.desired} == {0, 1, 2}
 
 
+def test_progressive_plan_can_skip_intermediate_levels(ortho_view) -> None:
+    source = _pyramid()
+    view = ortho_view((256, 256), viewport=(512, 512))
+    plan = Planner(progressive=True, max_intermediate_levels=0).plan(
+        source.pyramid, view, Layout(block_shape=(32, 32))
+    )
+
+    assert [tile.level for tile in plan.wanted] == sorted(
+        (tile.level for tile in plan.wanted), reverse=True
+    )
+    assert {tile.level for tile in plan.desired} == {0, 2}
+
+
+def test_lod_hysteresis_resists_small_level_boundary_crossings(ortho_view) -> None:
+    source = _pyramid()
+    layout = Layout(block_shape=(32, 32))
+    slightly_inside_fine = ortho_view(
+        (256, 256), viewport=(512, 512), extent_scale=3.9
+    )
+    slightly_inside_coarse = ortho_view(
+        (256, 256), viewport=(512, 512), extent_scale=4.1
+    )
+
+    assert Planner(progressive=False).plan(source.pyramid, slightly_inside_fine, layout).target_level == 0
+    assert (
+        Planner(progressive=False).plan(
+            source.pyramid,
+            slightly_inside_fine,
+            layout,
+            previous_target_level=1,
+            lod_hysteresis=0.2,
+        ).target_level
+        == 1
+    )
+    assert Planner(progressive=False).plan(source.pyramid, slightly_inside_coarse, layout).target_level == 1
+    assert (
+        Planner(progressive=False).plan(
+            source.pyramid,
+            slightly_inside_coarse,
+            layout,
+            previous_target_level=0,
+            lod_hysteresis=0.2,
+        ).target_level
+        == 0
+    )
+
+
 def test_gpu_budget_can_select_a_coarser_level(ortho_view) -> None:
     source = _pyramid()
     view = ortho_view((256, 256), viewport=(512, 512))

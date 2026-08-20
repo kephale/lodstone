@@ -20,11 +20,19 @@ class Planner:
         *,
         lod_bias: float = 1.0,
         progressive: bool = True,
+        max_intermediate_levels: int | None = None,
     ) -> None:
         if lod_bias <= 0:
             raise ValueError("lod_bias must be positive")
+        if max_intermediate_levels is not None and (
+            not isinstance(max_intermediate_levels, int)
+            or isinstance(max_intermediate_levels, bool)
+            or max_intermediate_levels < 0
+        ):
+            raise ValueError("max_intermediate_levels must be a nonnegative integer or None")
         self.lod_bias = float(lod_bias)
         self.progressive = bool(progressive)
+        self.max_intermediate_levels = max_intermediate_levels
 
     def plan(
         self,
@@ -33,11 +41,22 @@ class Planner:
         layout: Layout,
         *,
         available: frozenset[TileKey] = frozenset(),
+        previous_target_level: int | None = None,
+        lod_hysteresis: float = 0.0,
     ) -> Plan:
         """Return an ordered, cache-aware plan for ``view``."""
 
         self._validate(pyramid, view, layout)
-        target_level = self._select_level(pyramid, view)
+        if not 0 <= lod_hysteresis < 1:
+            raise ValueError("lod_hysteresis must be in [0, 1)")
+        if previous_target_level is not None and not 0 <= previous_target_level < len(pyramid.levels):
+            raise ValueError("previous_target_level is outside the pyramid")
+        target_level = self._select_level(
+            pyramid,
+            view,
+            previous_target_level=previous_target_level,
+            lod_hysteresis=lod_hysteresis,
+        )
         while target_level < len(pyramid.levels) - 1:
             target_tiles = self._tiles_for_level(
                 pyramid, view, layout, target_level, phase=0
@@ -45,9 +64,7 @@ class Planner:
             if _tiles_nbytes(target_tiles, pyramid) <= layout.memory_limit:
                 break
             target_level += 1
-        levels = [target_level]
-        if self.progressive:
-            levels = list(range(len(pyramid.levels) - 1, target_level - 1, -1))
+        levels = self._levels(len(pyramid.levels), target_level)
 
         wanted: list[Tile] = []
         desired: list[Tile] = []
@@ -92,9 +109,7 @@ class Planner:
         if target_region.ndim != pyramid.ndim:
             raise ValueError("target region dimensionality does not match pyramid")
 
-        levels = [target_level]
-        if self.progressive:
-            levels = list(range(len(pyramid.levels) - 1, target_level - 1, -1))
+        levels = self._levels(len(pyramid.levels), target_level)
         desired: list[Tile] = []
         wanted: list[Tile] = []
         retain: set[TileKey] = set()
@@ -196,8 +211,22 @@ class Planner:
                 "block_shape must match displayed or complete data dimensionality"
             )
 
-    def _select_level(self, pyramid: Pyramid, view: View) -> int:
-        threshold = self.lod_bias
+    def _select_level(
+        self,
+        pyramid: Pyramid,
+        view: View,
+        *,
+        previous_target_level: int | None = None,
+        lod_hysteresis: float = 0.0,
+    ) -> int:
+        selected = self._select_level_at_threshold(pyramid, view, self.lod_bias)
+        if previous_target_level is None or selected == previous_target_level or lod_hysteresis == 0:
+            return selected
+        factor = 1 + lod_hysteresis if selected < previous_target_level else 1 - lod_hysteresis
+        return self._select_level_at_threshold(pyramid, view, self.lod_bias * factor)
+
+    @staticmethod
+    def _select_level_at_threshold(pyramid: Pyramid, view: View, threshold: float) -> int:
         selected = 0
         for index, level in enumerate(pyramid.levels):
             footprint = _voxel_footprint_px(level.voxel_to_world, level.shape, view)
@@ -206,6 +235,16 @@ class Planner:
             else:
                 break
         return selected
+
+    def _levels(self, level_count: int, target_level: int) -> list[int]:
+        if not self.progressive:
+            return [target_level]
+        coarsest = level_count - 1
+        levels = list(range(coarsest, target_level - 1, -1))
+        limit = self.max_intermediate_levels
+        if limit is None or len(levels) <= limit + 2:
+            return levels
+        return [coarsest, *levels[-(limit + 1) :]]
 
     def _tiles_for_level(
         self,

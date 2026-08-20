@@ -147,7 +147,13 @@ class Stream:
 
         return disconnect
 
-    def plan(self, view: View) -> Plan:
+    def plan(
+        self,
+        view: View,
+        *,
+        previous_target_level: int | None = None,
+        lod_hysteresis: float = 0.0,
+    ) -> Plan:
         """Plan a view without changing the active generation."""
         with self._state_lock:
             if self._closed:
@@ -168,6 +174,8 @@ class Stream:
             view,
             layout,
             available=available,
+            previous_target_level=previous_target_level,
+            lod_hysteresis=lod_hysteresis,
         )
 
     def update(self, view: View) -> Plan:
