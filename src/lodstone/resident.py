@@ -95,8 +95,8 @@ class ResidentArrays:
     """Manage bounded dense CPU windows for a renderer-specific target.
 
     ``prepare`` stages the complete desired ladder, ``apply`` writes updates
-    into those staged windows, and ``complete`` promotes the target-level
-    window while retiring coarse and obsolete buffers. Window arrays retain
+    into those staged windows, and ``complete`` promotes the retained-level
+    windows while retiring obsolete buffers. Window arrays retain
     all pyramid dimensions; targets using this helper should request
     ``Layout(squeeze_hidden=False)``.
     """
@@ -248,16 +248,29 @@ class ResidentArrays:
                 for key in keys:
                     window.key_regions.pop(key, None)
 
-    def complete(self, plan: Plan) -> ResidentTransition:
-        """Promote the target window and retire coarse or replaced storage."""
+    def complete(
+        self, plan: Plan, *, retain_levels: bool = False
+    ) -> ResidentTransition:
+        """Promote target storage and optionally every retained LOD window."""
         with self.lock:
-            return self._complete(plan)
+            return self._complete(plan, retain_levels=retain_levels)
 
-    def _complete(self, plan: Plan) -> ResidentTransition:
+    def _complete(
+        self, plan: Plan, *, retain_levels: bool = False
+    ) -> ResidentTransition:
         if self.pending is None:
             return ResidentTransition()
-        target = self.pending.get(plan.target_level)
-        next_active = {} if target is None else {plan.target_level: target}
+        active_levels = (
+            {key.level for key in plan.retain}
+            if retain_levels
+            else {plan.target_level}
+        )
+        active_levels.add(plan.target_level)
+        next_active = {
+            level: window
+            for level, window in self.pending.items()
+            if level in active_levels
+        }
         retained = set(next_active.values())
         retired = tuple(
             window

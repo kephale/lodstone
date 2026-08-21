@@ -81,6 +81,9 @@ class Planner:
                 break
             target_level += 1
         levels = self._levels(pyramid, view, target_level)
+        context_level = len(pyramid.levels) - 1
+        if layout.mixed_lod and context_level not in levels:
+            levels.insert(0, context_level)
 
         wanted: list[Tile] = []
         desired: list[Tile] = []
@@ -88,7 +91,9 @@ class Planner:
         for phase, level_index in enumerate(levels):
             tiles = self._tiles_for_level(pyramid, view, layout, level_index, phase)
             desired.extend(tiles)
-            if level_index == target_level:
+            if level_index == target_level or (
+                layout.mixed_lod and level_index == context_level
+            ):
                 retain.update(tile.key for tile in tiles)
             wanted.extend(tile for tile in tiles if tile.key not in available)
 
@@ -126,6 +131,9 @@ class Planner:
             raise ValueError("target region dimensionality does not match pyramid")
 
         levels = self._levels(pyramid, view, target_level)
+        context_level = len(pyramid.levels) - 1
+        if layout.mixed_lod and context_level not in levels:
+            levels.insert(0, context_level)
         desired: list[Tile] = []
         wanted: list[Tile] = []
         retain: set[TileKey] = set()
@@ -154,7 +162,9 @@ class Planner:
                 phase,
             )
             desired.extend(tiles)
-            if level_index == target_level:
+            if level_index == target_level or (
+                layout.mixed_lod and level_index == context_level
+            ):
                 retain.update(tile.key for tile in tiles)
             if fetch_intermediate or level_index == target_level:
                 wanted.extend(tile for tile in tiles if tile.key not in available)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, replace
+from itertools import product
 from threading import Condition, Thread
 from time import monotonic
 from typing import Any, Self
@@ -25,6 +26,7 @@ class NDVPublication:
     level: int
     region: Region
     data: np.ndarray
+    data_axes: tuple[int, ...]
     scales: tuple[float, ...]
     origins: tuple[float, ...]
 
@@ -38,9 +40,9 @@ class NDVTarget:
     """Present complete dense phases through an ndv ``ArrayCanvas``.
 
     The target only relies on ndv's canvas and image-handle abstraction, so the
-    same adapter works with its VisPy and pygfx backends.  ndv currently exposes
-    scale but not translation on that abstraction; displayed regions must
-    therefore begin at the level origin.
+    same adapter works with its VisPy and pygfx backends. Each pyramid level is
+    a separate image handle so a coarse context can remain visible around the
+    camera-focused high-resolution window.
     """
 
     def __init__(
@@ -59,13 +61,18 @@ class NDVTarget:
             raise ValueError("memory_limit must be positive")
         self.block_shape = tuple(int(value) for value in block_shape)
         self.resident = ResidentArrays(pyramid, compose=True)
+        self.handles: dict[int, Any] = {}
+        self.publications: dict[int, NDVPublication] = {}
         self.handle: Any | None = None
+        self._context_level = len(pyramid.levels) - 1
+        self._masked_focus: tuple[int, Region] | None = None
         self.on_presented = on_presented
 
     def layout(self, view: View, pyramid: Pyramid) -> Layout:
         return Layout(
             kind="dense",
             block_shape=self.block_shape[-len(view.displayed_axes) :],
+            mixed_lod=True,
             memory_limit=self.memory_limit,
             squeeze_hidden=False,
             max_axis_extent=512,
@@ -105,6 +112,9 @@ class NDVTarget:
             raise RuntimeError("an ndv phase must describe exactly one pyramid level")
         level = levels.pop()
         window = self.resident.windows[level]
+        data_axes = tuple(
+            axis for axis in range(window.region.ndim) if axis in view.displayed_axes
+        )
         hidden = tuple(
             axis
             for axis in range(window.region.ndim)
@@ -116,12 +126,12 @@ class NDVTarget:
         data.setflags(write=False)
         transform = self.pyramid.levels[level].voxel_to_world
         scales = tuple(
-            float(np.linalg.norm(transform[:-1, axis])) for axis in view.displayed_axes
+            float(np.linalg.norm(transform[:-1, axis])) for axis in data_axes
         )
         world_origin = transform[:-1, :-1] @ np.asarray(window.region.start)
         world_origin += transform[:-1, -1]
-        origins = tuple(float(world_origin[axis]) for axis in view.displayed_axes)
-        return NDVPublication(level, window.region, data, scales, origins)
+        origins = tuple(float(world_origin[axis]) for axis in data_axes)
+        return NDVPublication(level, window.region, data, data_axes, scales, origins)
 
     def phase_complete(
         self,
@@ -132,16 +142,35 @@ class NDVTarget:
     ) -> None:
         ndim = len(view.displayed_axes)
         self.canvas.set_ndim(ndim)
-        first_publication = self.handle is None
-        if first_publication:
+        wants_level = any(tile.level == publication.level for tile in plan.wanted)
+        previous = self.publications.get(publication.level)
+        if (
+            publication.level == self._context_level
+            and not wants_level
+            and previous is not None
+            and previous.region == publication.region
+        ):
+            # Stream phases also complete when every context tile was cached.
+            # Keep the existing visual instead of uploading the same array.
+            return
+        handle = self.handles.get(publication.level)
+        first_publication = not self.handles
+        if handle is None:
             factory = self.canvas.add_image if ndim == 2 else self.canvas.add_volume
-            self.handle = factory(publication.data)
+            handle = factory(publication.data, reset_range=False)
+            self.handles[publication.level] = handle
         else:
-            self.handle.set_data(publication.data)
-        self.canvas.set_scales(publication.scales, reset_range=False)
-        self.canvas.set_origins(publication.origins)
+            handle.set_data(publication.data)
+        handle.set_world_transform(publication.scales, publication.origins)
+        handle.set_visible(True)
+        self.publications[publication.level] = publication
+        if publication.level == self._context_level:
+            self._masked_focus = None
+        self.handle = handle
         if first_publication:
             self.canvas.set_range()
+        if publication.level != self._context_level:
+            self._mask_context(publication)
         self.canvas.refresh()
         if self.on_presented is not None:
             self.on_presented(publication)
@@ -150,16 +179,74 @@ class NDVTarget:
         self.resident.discard(keys)
 
     def complete(self, view: View, plan: Plan) -> None:
-        self.resident.complete(plan)
+        self.resident.complete(plan, retain_levels=True)
+        keep = {self._context_level, plan.target_level}
+        for level in tuple(self.handles):
+            if level not in keep:
+                self.handles.pop(level).remove()
+                self.publications.pop(level, None)
+        context = self.publications.get(self._context_level)
+        if context is not None:
+            if plan.target_level == self._context_level:
+                self.handles[self._context_level].set_data(context.data)
+                self._masked_focus = None
+            elif (focus := self.publications.get(plan.target_level)) is not None:
+                self._mask_context(focus)
+
+    def _mask_context(self, focus: NDVPublication) -> None:
+        """Punch the fine focus footprint out of the additive coarse visual."""
+        context = self.publications.get(self._context_level)
+        handle = self.handles.get(self._context_level)
+        identity = (focus.level, focus.region)
+        if context is None or handle is None or self._masked_focus == identity:
+            return
+        overlap = _region_in_level(
+            focus.region,
+            self.pyramid.levels[focus.level].voxel_to_world,
+            self.pyramid.levels[self._context_level].voxel_to_world,
+        ).intersection(context.region)
+        masked = context.data.copy()
+        if overlap is not None:
+            slices = tuple(
+                slice(
+                    overlap.start[axis] - context.region.start[axis],
+                    overlap.stop[axis] - context.region.start[axis],
+                )
+                for axis in context.data_axes
+            )
+            masked[slices] = 0
+        handle.set_data(masked)
+        handle.set_world_transform(context.scales, context.origins)
+        self._masked_focus = identity
 
     def redraw(self) -> None:
         self.canvas.refresh()
 
     def close(self) -> None:
-        if self.handle is not None:
-            self.handle.remove()
-            self.handle = None
+        for handle in self.handles.values():
+            handle.remove()
+        self.handles.clear()
+        self.publications.clear()
+        self.handle = None
         self.resident.clear()
+
+
+def _region_in_level(
+    region: Region,
+    source_to_world: np.ndarray,
+    destination_to_world: np.ndarray,
+) -> Region:
+    """Return a conservative destination-level box for ``region``."""
+    ndim = region.ndim
+    destination_from_source = np.linalg.solve(destination_to_world, source_to_world)
+    corners = np.asarray(
+        [(*corner, 1.0) for corner in product(*zip(region.start, region.stop))],
+        dtype=np.float64,
+    )
+    mapped = (destination_from_source @ corners.T).T[:, :ndim]
+    start = tuple(max(0, int(np.floor(value))) for value in mapped.min(axis=0))
+    stop = tuple(max(0, int(np.ceil(value))) for value in mapped.max(axis=0))
+    return Region(start, stop)
 
 
 class NDVController:

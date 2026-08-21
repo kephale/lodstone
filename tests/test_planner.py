@@ -127,6 +127,24 @@ def test_progressive_initial_level_remains_coarsest_by_default(ortho_view) -> No
     assert {tile.level for tile in plan.desired} == {0, 2}
 
 
+def test_mixed_lod_retains_coarsest_context_with_target(ortho_view) -> None:
+    source = _pyramid()
+    view = ortho_view((256, 256), viewport=(512, 512))
+    plan = Planner(
+        progressive=True,
+        max_intermediate_levels=0,
+        max_initial_voxel_footprint=1.1,
+    ).plan(
+        source.pyramid,
+        view,
+        Layout(block_shape=(32, 32), mixed_lod=True),
+    )
+
+    assert plan.target_level == 0
+    assert {tile.level for tile in plan.desired} == {0, 2}
+    assert {key.level for key in plan.retain} == {0, 2}
+
+
 @pytest.mark.parametrize("value", [0, -1, float("inf"), float("nan")])
 def test_progressive_initial_voxel_footprint_must_be_positive_and_finite(value) -> None:
     with pytest.raises(ValueError, match="max_initial_voxel_footprint"):

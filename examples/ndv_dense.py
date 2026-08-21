@@ -1,8 +1,7 @@
 """Display a real Zebrahub timepoint through ndv's dense 3-D canvas.
 
-The initial full-volume view selects the coarsest source level, whose roughly
-74 MiB dense array fits comfortably in the default ndv target budget. Finer,
-translated camera windows await a public ndv canvas translation API.
+The coarsest source level remains visible as a clipmap-style context while
+translated, camera-selected higher-resolution windows stream above it.
 """
 
 from __future__ import annotations
@@ -100,7 +99,7 @@ def main() -> None:
     )
     print(
         f"Loading pyramid level {plan.target_level} "
-        f"from {len(plan.wanted)} native chunks"
+        f"from {len(plan.wanted)} logical blocks"
     )
     viewer.show()
     try:
