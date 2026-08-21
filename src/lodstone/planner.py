@@ -70,6 +70,12 @@ class Planner:
             previous_target_level=previous_target_level,
             lod_hysteresis=lod_hysteresis,
         )
+        context_level = len(pyramid.levels) - 1
+        target_depth_weight = (
+            None
+            if layout.mixed_lod and target_level == context_level
+            else layout.focus_depth_weight
+        )
         while target_level < len(pyramid.levels) - 1:
             target_tiles = self._tiles_for_level(
                 pyramid,
@@ -77,7 +83,7 @@ class Planner:
                 layout,
                 target_level,
                 phase=0,
-                focus_depth_weight=layout.focus_depth_weight,
+                focus_depth_weight=target_depth_weight,
             )
             if layout.memory_policy == "crop":
                 if target_tiles:
@@ -85,8 +91,12 @@ class Planner:
             elif _tiles_nbytes(target_tiles, pyramid) <= layout.memory_limit:
                 break
             target_level += 1
+        target_depth_weight = (
+            None
+            if layout.mixed_lod and target_level == context_level
+            else layout.focus_depth_weight
+        )
         levels = self._levels(pyramid, view, target_level)
-        context_level = len(pyramid.levels) - 1
         if layout.mixed_lod and context_level not in levels:
             levels.insert(0, context_level)
 
@@ -101,9 +111,7 @@ class Planner:
                 level_index,
                 phase,
                 focus_depth_weight=(
-                    layout.focus_depth_weight
-                    if level_index == target_level
-                    else None
+                    target_depth_weight if level_index == target_level else None
                 ),
             )
             desired.extend(tiles)
@@ -581,12 +589,10 @@ def _crop_dense_tiles(
     if focus_depth_weight is None or len(view.displayed_axes) != 3:
         priority = lambda item: (item.priority, item.key.grid_index)
     else:
+
         def priority(item: Tile) -> tuple[float, tuple[int, ...]]:
             projection = _project_region(level.voxel_to_world, item.region, view)
-            score = (
-                projection.center_distance
-                + focus_depth_weight * projection.depth
-            )
+            score = projection.center_distance + focus_depth_weight * projection.depth
             return score, item.key.grid_index
 
     for tile in sorted(tiles, key=priority):

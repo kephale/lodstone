@@ -46,8 +46,15 @@ def main() -> None:
 
     viewer = ndv.ArrayViewer()
     widget = viewer.widget()
-    from qtpy.QtCore import Qt
-    from qtpy.QtWidgets import QLabel
+    from qtpy.QtCore import Qt, QTimer
+    from qtpy.QtWidgets import (
+        QFormLayout,
+        QFrame,
+        QHBoxLayout,
+        QLabel,
+        QSlider,
+        QWidget,
+    )
 
     indicator = QLabel("Lodstone · waiting", widget)
     indicator.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
@@ -89,6 +96,70 @@ def main() -> None:
         on_presented=show_presented_level,
         on_targeted=show_target_level,
     )
+
+    controls = QFrame(widget)
+    controls.setStyleSheet(
+        "QFrame { background: rgba(0, 0, 0, 190); color: white; "
+        "border-radius: 4px; } QLabel { color: white; }"
+    )
+    form = QFormLayout(controls)
+    form.setContentsMargins(9, 7, 9, 7)
+    form.setSpacing(5)
+
+    def slider_row(
+        minimum: int, maximum: int, value: int
+    ) -> tuple[QWidget, QSlider, QLabel]:
+        row = QWidget(controls)
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        slider = QSlider(Qt.Orientation.Horizontal, row)
+        slider.setRange(minimum, maximum)
+        slider.setValue(value)
+        slider.setMinimumWidth(150)
+        readout = QLabel(row)
+        readout.setMinimumWidth(48)
+        row_layout.addWidget(slider)
+        row_layout.addWidget(readout)
+        return row, slider, readout
+
+    budget_row, budget_slider, budget_value = slider_row(32, 256, 64)
+    depth_row, depth_slider, depth_value = slider_row(0, 100, 75)
+    lod_row, lod_slider, lod_value = slider_row(50, 300, 200)
+    form.addRow("Focus MiB", budget_row)
+    form.addRow("Depth coverage", depth_row)
+    form.addRow("LOD bias", lod_row)
+
+    tune_timer = QTimer(controls)
+    tune_timer.setSingleShot(True)
+    tune_timer.setInterval(250)
+
+    def configure_focus() -> None:
+        memory_mib = budget_slider.value()
+        # A larger UI value means more camera-axis coverage. Lodstone's weight
+        # is the inverse: zero treats screen-center and all depths equally.
+        depth_weight = 2.0 * (1.0 - depth_slider.value() / 100.0)
+        lod_bias = lod_slider.value() / 100.0
+        budget_value.setText(str(memory_mib))
+        depth_value.setText(f"{depth_slider.value()}%")
+        lod_value.setText(f"{lod_bias:.2f}")
+        controller.set_focus_policy(
+            memory_limit=memory_mib * 1024**2,
+            focus_depth_weight=depth_weight,
+            lod_bias=lod_bias,
+            replan=False,
+        )
+        tune_timer.start()
+
+    tune_timer.timeout.connect(lambda: controller.set_focus_policy())
+    for slider in (budget_slider, depth_slider, lod_slider):
+        slider.valueChanged.connect(configure_focus)
+    configure_focus()
+    tune_timer.stop()
+    controls.move(12, 50)
+    controls.adjustSize()
+    controls.show()
+    controls.raise_()
+
     plan = controller.update(
         View(
             displayed_axes=(0, 1, 2),

@@ -52,6 +52,7 @@ class NDVTarget:
         *,
         memory_limit: int = 64 * 1024**2,
         block_shape: tuple[int, ...] = (64, 128, 128),
+        focus_depth_weight: float = 0.5,
         on_presented: Callable[[NDVPublication], None] | None = None,
     ) -> None:
         self.canvas = canvas
@@ -59,7 +60,10 @@ class NDVTarget:
         self.memory_limit = int(memory_limit)
         if self.memory_limit <= 0:
             raise ValueError("memory_limit must be positive")
+        if not np.isfinite(focus_depth_weight) or focus_depth_weight < 0:
+            raise ValueError("focus_depth_weight must be finite and nonnegative")
         self.block_shape = tuple(int(value) for value in block_shape)
+        self.focus_depth_weight = float(focus_depth_weight)
         self.resident = ResidentArrays(pyramid, compose=True)
         self.handles: dict[int, Any] = {}
         self.publications: dict[int, NDVPublication] = {}
@@ -77,7 +81,7 @@ class NDVTarget:
             squeeze_hidden=False,
             max_axis_extent=512,
             memory_policy="crop",
-            focus_depth_weight=0.5,
+            focus_depth_weight=self.focus_depth_weight,
         )
 
     def stage_prepare(self, view: View, plan: Plan) -> NDVPreparation:
@@ -268,6 +272,7 @@ class NDVController:
         runtime: Runtime | None = None,
         memory_limit: int = 64 * 1024**2,
         block_shape: tuple[int, ...] = (64, 128, 128),
+        focus_depth_weight: float = 0.5,
         on_presented: Callable[[NDVPublication], None] | None = None,
         on_targeted: Callable[[Plan], None] | None = None,
         camera_debounce_ms: int = 180,
@@ -297,6 +302,7 @@ class NDVController:
             source.pyramid,
             memory_limit=memory_limit,
             block_shape=block_shape,
+            focus_depth_weight=focus_depth_weight,
             on_presented=on_presented,
         )
         stream_options.setdefault(
@@ -331,6 +337,35 @@ class NDVController:
         plan = self.stream.update(view)
         self._notify_targeted(plan)
         return plan
+
+    def set_focus_policy(
+        self,
+        *,
+        memory_limit: int | None = None,
+        focus_depth_weight: float | None = None,
+        lod_bias: float | None = None,
+        replan: bool = True,
+    ) -> Plan | None:
+        """Update interactive focus controls and optionally replan the view."""
+        if memory_limit is not None:
+            if memory_limit <= 0:
+                raise ValueError("memory_limit must be positive")
+            self.target.memory_limit = int(memory_limit)
+        if focus_depth_weight is not None:
+            if not np.isfinite(focus_depth_weight) or focus_depth_weight < 0:
+                raise ValueError("focus_depth_weight must be finite and nonnegative")
+            self.target.focus_depth_weight = float(focus_depth_weight)
+        if lod_bias is not None:
+            planner = self.stream.planner
+            self.stream.planner = Planner(
+                lod_bias=lod_bias,
+                progressive=planner.progressive,
+                max_intermediate_levels=planner.max_intermediate_levels,
+                max_initial_voxel_footprint=planner.max_initial_voxel_footprint,
+            )
+        if replan and self._last_view is not None:
+            return self.update(self._last_view)
+        return None
 
     def _camera_changed(self) -> None:
         if self._last_view is None or self._presenting:

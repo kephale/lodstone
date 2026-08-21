@@ -4,7 +4,7 @@ import time
 
 import numpy as np
 
-from lodstone import View
+from lodstone import Layout, View
 from lodstone.adapters.ndv import NDVController
 from lodstone.testing import SimulatedSource
 
@@ -283,5 +283,36 @@ def test_ndv_ignores_camera_events_caused_by_its_own_publication(ortho_view, wai
         wait(lambda: controller.stream.status.state == "complete")
         time.sleep(0.04)
         assert targets == [0]
+    finally:
+        controller.close()
+
+
+def test_ndv_focus_policy_can_be_tuned_and_replanned(ortho_view, wait) -> None:
+    source = SimulatedSource([np.ones((16, 16), np.uint8)], chunks=[(8, 8)])
+    controller = NDVController(Canvas(), source)
+    view = ortho_view((16, 16), viewport=(64, 64))
+    try:
+        controller.update(view)
+        wait(lambda: controller.stream.status.state == "complete")
+        plan = controller.set_focus_policy(
+            memory_limit=32 * 1024**2,
+            focus_depth_weight=0.25,
+            lod_bias=1.5,
+        )
+
+        assert plan is not None
+        assert controller.target.memory_limit == 32 * 1024**2
+        assert controller.target.focus_depth_weight == 0.25
+        assert controller.stream.planner.lod_bias == 1.5
+        assert controller.target.layout(view, source.pyramid) == Layout(
+            kind="dense",
+            block_shape=(128, 128),
+            mixed_lod=True,
+            memory_limit=32 * 1024**2,
+            squeeze_hidden=False,
+            max_axis_extent=512,
+            memory_policy="crop",
+            focus_depth_weight=0.25,
+        )
     finally:
         controller.close()
