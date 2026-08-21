@@ -99,6 +99,22 @@ stream = Stream(
 )
 ```
 
+Viewers with several layers or channels should share a `Runtime`. It owns one
+asynchronous scheduler and a bounded CPU staging pool, while each stream keeps
+its independent request state. Heavy `stage`, `stage_prepare`, and
+`stage_phase` work runs in that pool instead of blocking I/O and cancellation:
+
+```python
+from lodstone import Runtime, Stream
+
+runtime = Runtime(compute_workers=2)
+streams = [
+    Stream(source, target, runtime=runtime, dispatch=run_on_viewer_thread)
+    for source, target in channels
+]
+# Close streams first, then the shared runtime.
+```
+
 ## napari adapter
 
 The optional adapter uses the rendering architecture from napari PR #9067: a
@@ -128,6 +144,32 @@ This currently requires the `lodstone-integration` napari branch based on PR
 #9067. Run
 `examples/napari_ome_zarr.py` for a two-channel remote example. The core
 package still has no napari or Qt dependency.
+
+## ndv adapter
+
+The ndv adapter presents immutable dense phase snapshots through ndv's common
+`ArrayCanvas` API, so the same target works with its VisPy and pygfx renderers.
+Create an empty `ndv.ArrayViewer`, pass it and a source to `NDVController`, then
+submit renderer-neutral `View` snapshots:
+
+```python
+import ndv
+
+from lodstone.adapters.ndv import NDVController
+
+viewer = ndv.ArrayViewer()
+controller = NDVController(viewer, source)
+controller.update(view)
+viewer.show()
+ndv.run_app()
+controller.close()
+```
+
+The initial adapter supports origin-aligned dense 2-D and 3-D windows, hidden
+axis selections, progressive phase replacement, and shared runtimes. See
+`examples/ndv_dense.py`. Camera-driven subvolume placement awaits a public ndv
+canvas transform API; it is reported explicitly instead of silently displaying
+a translated window at the origin.
 
 `examples/napari_zebrahub.py` opens one lazy timepoint from the public
 ZSNS001 Zebrahub light-sheet series in 3-D. Its approximately 32 MiB native

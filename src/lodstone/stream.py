@@ -28,6 +28,7 @@ from .model import (
     View,
 )
 from .planner import Planner
+from .runtime import Runtime
 from .source import Source
 from .target import ResidencyLease, Target
 
@@ -59,6 +60,7 @@ class Stream:
         inflight: int = 256 << 20,
         batch_size: int = 8,
         bytes_per_second: float | None = None,
+        runtime: Runtime | None = None,
     ) -> None:
         if (
             workers <= 0
@@ -79,6 +81,8 @@ class Stream:
         self.inflight_limit = inflight
         self.batch_size = batch_size
         self.bytes_per_second = bytes_per_second
+        self.runtime = runtime or Runtime()
+        self._owns_runtime = runtime is None
 
         self._state_lock = threading.RLock()
         self._generation = 0
@@ -91,11 +95,7 @@ class Stream:
         self._closed = False
         self._paused = False
 
-        self._loop = asyncio.new_event_loop()
-        self._thread = threading.Thread(
-            target=self._run_loop, name="lodstone-stream", daemon=True
-        )
-        self._thread.start()
+        self._loop = self.runtime.loop
         self._active: Future[Any] | None = None
         self._read_semaphore: asyncio.Semaphore | None = None
         self._resume_event: asyncio.Event | None = None
@@ -314,31 +314,16 @@ class Stream:
         if self._active is not None:
             self._active.cancel()
         self._set_status(Status(generation=generation, state="closed"))
-        self._loop.call_soon_threadsafe(self._loop.stop)
-        self._thread.join(timeout=5)
+        if not self._loop.is_closed():
+            self._loop.call_soon_threadsafe(self._cancel_stream_tasks)
+        if self._owns_runtime:
+            self.runtime.close()
 
     def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *args: object) -> None:
         self.close()
-
-    def _run_loop(self) -> None:
-        asyncio.set_event_loop(self._loop)
-        self._read_semaphore = asyncio.Semaphore(self.workers)
-        self._resume_event = asyncio.Event()
-        self._rate_lock = asyncio.Lock()
-        if not self._paused:
-            self._resume_event.set()
-        self._loop.run_forever()
-        pending = asyncio.all_tasks(self._loop)
-        for task in pending:
-            task.cancel()
-        if pending:
-            self._loop.run_until_complete(
-                asyncio.gather(*pending, return_exceptions=True)
-            )
-        self._loop.close()
 
     async def _execute(
         self, generation: int, view: View, plan: Plan, layout: Any
@@ -353,7 +338,11 @@ class Stream:
                 frozenset(lease.available_keys) if lease is not None else frozenset()
             )
             wanted = tuple(tile for tile in plan.wanted if tile.key not in available)
-            phases = sorted({tile.phase for tile in wanted})
+            desired = plan.desired or plan.wanted
+            # Presentation is a property of the logical plan, not only its
+            # cache misses.  Targets may need to publish an already-resident
+            # phase into newly prepared renderer resources.
+            phases = sorted({tile.phase for tile in desired})
             for phase in phases:
                 phase_tiles = [tile for tile in wanted if tile.phase == phase]
                 for window in self._tile_windows(phase_tiles):
@@ -571,6 +560,13 @@ class Stream:
         if self._chunk_tasks.get(key) is task:
             self._chunk_tasks.pop(key, None)
 
+    def _cancel_stream_tasks(self) -> None:
+        """Cancel reads owned by this stream without stopping a shared runtime."""
+
+        for task in tuple(self._chunk_tasks.values()):
+            task.cancel()
+        self._chunk_tasks.clear()
+
     async def _fetch_chunk(
         self,
         level_index: int,
@@ -583,10 +579,8 @@ class Stream:
         )
         start = tuple(value for value, _stop in bounds)
         stop = tuple(value for _start, value in bounds)
-        # ``update()`` may be called immediately after construction, before the
-        # runtime thread has entered ``run_forever``.  Initialise lazily on the
-        # runtime loop as well as eagerly in ``_run_loop`` to make that race
-        # harmless.
+        # Streams may share a runtime, so per-stream concurrency primitives are
+        # initialized lazily on that runtime's event loop.
         if self._read_semaphore is None:
             self._read_semaphore = asyncio.Semaphore(self.workers)
         key = (level_index, chunk_index)
@@ -709,7 +703,11 @@ class Stream:
         # prepared rendering update.
         stage = getattr(self.target, "stage", None)
         stage_started = time.perf_counter()
-        prepared = stage(updates) if stage is not None else updates
+        prepared = (
+            await self.runtime.run_cpu(stage, updates)
+            if stage is not None
+            else updates
+        )
         if stage is not None:
             self._increment_diagnostics(
                 generation,
@@ -737,7 +735,7 @@ class Stream:
         prepared = None
         if stage_prepare is not None and self._is_current(generation):
             stage_started = time.perf_counter()
-            prepared = stage_prepare(view, plan)
+            prepared = await self.runtime.run_cpu(stage_prepare, view, plan)
             self._increment_diagnostics(
                 generation,
                 prepare_stage_seconds=time.perf_counter() - stage_started,
@@ -783,7 +781,7 @@ class Stream:
         prepared = None
         if stage_phase is not None and self._is_current(generation):
             stage_started = time.perf_counter()
-            prepared = stage_phase(view, plan, phase)
+            prepared = await self.runtime.run_cpu(stage_phase, view, plan, phase)
             self._increment_diagnostics(
                 generation,
                 phase_stage_seconds=time.perf_counter() - stage_started,

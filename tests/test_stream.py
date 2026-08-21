@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
 from collections.abc import Callable
@@ -15,6 +16,7 @@ from lodstone import (
     Region,
     ResidentArrays,
     ResidentLease,
+    Runtime,
     Stream,
     Tile,
     TileKey,
@@ -672,6 +674,122 @@ def test_phase_lifecycle_follows_each_progressive_phase(ortho_view, wait) -> Non
         assert target.phases == [0, 1]
     finally:
         stream.close()
+
+
+def test_phase_lifecycle_presents_already_resident_phases(ortho_view, wait) -> None:
+    class PhaseRecordingTarget(RecordingTarget):
+        def __init__(self) -> None:
+            super().__init__(Layout(block_shape=(4, 4)))
+            self.phases: list[int] = []
+
+        def phase_complete(self, view, plan, phase) -> None:
+            self.phases.append(phase)
+
+    source = SimulatedSource(
+        [
+            np.zeros((8, 8), dtype=np.uint8),
+            np.zeros((4, 4), dtype=np.uint8),
+        ],
+        transforms=[np.eye(3), np.diag([2.0, 2.0, 1.0])],
+        chunks=[(4, 4), (4, 4)],
+    )
+    target = PhaseRecordingTarget()
+    stream = Stream(source, target, planner=Planner(progressive=True))
+    view = ortho_view((8, 8), viewport=(64, 64))
+    try:
+        stream.update(view)
+        wait(lambda: stream.status.state == "complete")
+        first_reads = tuple(source.reads)
+
+        cached = stream.plan(view)
+        assert {tile.phase for tile in cached.wanted} == {0}
+        assert any(tile.phase == 1 for tile in cached.desired)
+        assert not any(tile.phase == 1 for tile in cached.wanted)
+        stream.submit(view, cached)
+        wait(
+            lambda: stream.status.state == "complete"
+            and stream.status.generation == 2
+        )
+
+        assert target.phases == [0, 1, 0, 1]
+        assert tuple(source.reads) == first_reads
+    finally:
+        stream.close()
+
+
+def test_shared_runtime_stages_without_blocking_other_streams(
+    ortho_view, wait
+) -> None:
+    stage_started = threading.Event()
+    release_stage = threading.Event()
+
+    class BlockingTarget(RecordingTarget):
+        def stage(self, updates):
+            stage_started.set()
+            assert release_stage.wait(timeout=5)
+            return updates
+
+    runtime = Runtime(compute_workers=2)
+    slow = Stream(
+        SimulatedSource([np.zeros((4, 4), dtype=np.uint8)], chunks=[(4, 4)]),
+        BlockingTarget(Layout(block_shape=(4, 4))),
+        runtime=runtime,
+    )
+    fast = Stream(
+        SimulatedSource([np.zeros((4, 4), dtype=np.uint8)], chunks=[(4, 4)]),
+        RecordingTarget(Layout(block_shape=(4, 4))),
+        runtime=runtime,
+    )
+    view = ortho_view((4, 4), viewport=(64, 64))
+    try:
+        slow.update(view)
+        assert stage_started.wait(timeout=5)
+        fast.update(view)
+        wait(lambda: fast.status.state == "complete")
+        assert slow.status.state == "loading"
+
+        release_stage.set()
+        wait(lambda: slow.status.state == "complete")
+        slow.close()
+        assert not runtime.closed
+    finally:
+        release_stage.set()
+        slow.close()
+        fast.close()
+        runtime.close()
+
+    assert runtime.closed
+
+
+def test_closing_stream_cancels_its_reads_on_shared_runtime(
+    ortho_view, wait
+) -> None:
+    started = threading.Event()
+    cancelled = threading.Event()
+
+    class BlockingSource(SimulatedSource):
+        async def read(self, level, region):
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+
+    runtime = Runtime()
+    stream = Stream(
+        BlockingSource([np.zeros((4, 4), dtype=np.uint8)], chunks=[(4, 4)]),
+        RecordingTarget(Layout(block_shape=(4, 4))),
+        runtime=runtime,
+    )
+    try:
+        stream.update(ortho_view((4, 4), viewport=(64, 64)))
+        assert started.wait(timeout=5)
+        stream.close()
+        wait(cancelled.is_set)
+        assert not runtime.closed
+    finally:
+        stream.close()
+        runtime.close()
 
 
 def test_pause_holds_reads_until_resume(ortho_view, wait) -> None:
