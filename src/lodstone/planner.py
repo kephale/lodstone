@@ -72,7 +72,12 @@ class Planner:
         )
         while target_level < len(pyramid.levels) - 1:
             target_tiles = self._tiles_for_level(
-                pyramid, view, layout, target_level, phase=0
+                pyramid,
+                view,
+                layout,
+                target_level,
+                phase=0,
+                focus_depth_weight=layout.focus_depth_weight,
             )
             if layout.memory_policy == "crop":
                 if target_tiles:
@@ -89,7 +94,18 @@ class Planner:
         desired: list[Tile] = []
         retain: set[TileKey] = set()
         for phase, level_index in enumerate(levels):
-            tiles = self._tiles_for_level(pyramid, view, layout, level_index, phase)
+            tiles = self._tiles_for_level(
+                pyramid,
+                view,
+                layout,
+                level_index,
+                phase,
+                focus_depth_weight=(
+                    layout.focus_depth_weight
+                    if level_index == target_level
+                    else None
+                ),
+            )
             desired.extend(tiles)
             if level_index == target_level or (
                 layout.mixed_lod and level_index == context_level
@@ -300,6 +316,8 @@ class Planner:
         layout: Layout,
         level_index: int,
         phase: int,
+        *,
+        focus_depth_weight: float | None = None,
     ) -> list[Tile]:
         level = pyramid.levels[level_index]
         grids = _display_grid(layout, level, view.displayed_axes)
@@ -334,7 +352,7 @@ class Planner:
                 level,
                 layout.memory_limit,
                 view=view,
-                focus_depth_weight=layout.focus_depth_weight,
+                focus_depth_weight=focus_depth_weight,
             )
         return result
 
