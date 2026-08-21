@@ -100,6 +100,19 @@ class CameraCanvas(Canvas):
         return (64, 64), self.world_to_clip.copy()
 
 
+class PublishingCameraCanvas(CameraCanvas):
+    def add_image(self, data=None, *, reset_range=True):
+        handle = super().add_image(data, reset_range=reset_range)
+        original = handle.set_world_transform
+
+        def set_world_transform(scales, origins):
+            original(scales, origins)
+            self.cameraChanged.emit()
+
+        handle.set_world_transform = set_world_transform
+        return handle
+
+
 def test_ndv_target_presents_dense_camera_phase(ortho_view, wait) -> None:
     fine = np.arange(64, dtype=np.uint16).reshape(8, 8)
     coarse = fine[::2, ::2]
@@ -250,6 +263,25 @@ def test_ndv_camera_updates_are_debounced_off_interaction_thread(ortho_view, wai
         assert targets == [0]
         canvas.cameraChanged.emit()
         time.sleep(0.06)
+        assert targets == [0]
+    finally:
+        controller.close()
+
+
+def test_ndv_ignores_camera_events_caused_by_its_own_publication(ortho_view, wait):
+    source = SimulatedSource([np.ones((16, 16), np.uint8)], chunks=[(8, 8)])
+    canvas = PublishingCameraCanvas()
+    targets = []
+    controller = NDVController(
+        canvas,
+        source,
+        camera_debounce_ms=10,
+        on_targeted=lambda plan: targets.append(plan.target_level),
+    )
+    try:
+        controller.update(ortho_view((16, 16), viewport=(64, 64)))
+        wait(lambda: controller.stream.status.state == "complete")
+        time.sleep(0.04)
         assert targets == [0]
     finally:
         controller.close()

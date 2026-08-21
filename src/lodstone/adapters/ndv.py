@@ -288,6 +288,7 @@ class NDVController:
         self._camera_deadline = 0.0
         self._camera_generation = 0
         self._closed = False
+        self._presenting = False
         self.runtime = runtime or Runtime()
         self._owns_runtime = runtime is None
         self.target = NDVTarget(
@@ -309,7 +310,7 @@ class NDVController:
         self.stream = Stream(
             source,
             self.target,
-            dispatch=self._dispatch,
+            dispatch=self._dispatch_presentation,
             runtime=self.runtime,
             **stream_options,
         )
@@ -331,7 +332,7 @@ class NDVController:
         return plan
 
     def _camera_changed(self) -> None:
-        if self._last_view is None:
+        if self._last_view is None or self._presenting:
             return
         viewport, world_to_clip = self.canvas.camera_state()
         # Scene-bound changes can alter only the depth/near-far transform when
@@ -379,6 +380,16 @@ class NDVController:
                     continue
             self.stream.submit(view, plan)
             self._notify_targeted(plan)
+
+    def _dispatch_presentation(self, callback: Callable[[], None]) -> None:
+        def guarded() -> None:
+            self._presenting = True
+            try:
+                callback()
+            finally:
+                self._presenting = False
+
+        self._dispatch(guarded)
 
     def _notify_targeted(self, plan: Plan) -> None:
         if self._on_targeted is not None:
