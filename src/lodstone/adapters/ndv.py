@@ -99,7 +99,9 @@ class NDVTarget:
                 "ndv's canvas abstraction cannot place a translated dense window"
             )
         hidden = tuple(
-            axis for axis in range(window.region.ndim) if axis not in view.displayed_axes
+            axis
+            for axis in range(window.region.ndim)
+            if axis not in view.displayed_axes
         )
         if any(window.data.shape[axis] != 1 for axis in hidden):
             raise RuntimeError("hidden axes must be singleton resident selections")
@@ -107,8 +109,7 @@ class NDVTarget:
         data.setflags(write=False)
         transform = self.pyramid.levels[level].voxel_to_world
         scales = tuple(
-            float(np.linalg.norm(transform[:-1, axis]))
-            for axis in view.displayed_axes
+            float(np.linalg.norm(transform[:-1, axis])) for axis in view.displayed_axes
         )
         return NDVPublication(level, window.region, data, scales)
 

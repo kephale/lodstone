@@ -704,9 +704,7 @@ class Stream:
         stage = getattr(self.target, "stage", None)
         stage_started = time.perf_counter()
         prepared = (
-            await self.runtime.run_cpu(stage, updates)
-            if stage is not None
-            else updates
+            await self.runtime.run_cpu(stage, updates) if stage is not None else updates
         )
         if stage is not None:
             self._increment_diagnostics(

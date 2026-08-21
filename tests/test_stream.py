@@ -707,8 +707,7 @@ def test_phase_lifecycle_presents_already_resident_phases(ortho_view, wait) -> N
         assert not any(tile.phase == 1 for tile in cached.wanted)
         stream.submit(view, cached)
         wait(
-            lambda: stream.status.state == "complete"
-            and stream.status.generation == 2
+            lambda: stream.status.state == "complete" and stream.status.generation == 2
         )
 
         assert target.phases == [0, 1, 0, 1]
@@ -717,9 +716,7 @@ def test_phase_lifecycle_presents_already_resident_phases(ortho_view, wait) -> N
         stream.close()
 
 
-def test_shared_runtime_stages_without_blocking_other_streams(
-    ortho_view, wait
-) -> None:
+def test_shared_runtime_stages_without_blocking_other_streams(ortho_view, wait) -> None:
     stage_started = threading.Event()
     release_stage = threading.Event()
 
@@ -761,9 +758,7 @@ def test_shared_runtime_stages_without_blocking_other_streams(
     assert runtime.closed
 
 
-def test_closing_stream_cancels_its_reads_on_shared_runtime(
-    ortho_view, wait
-) -> None:
+def test_closing_stream_cancels_its_reads_on_shared_runtime(ortho_view, wait) -> None:
     started = threading.Event()
     cancelled = threading.Event()
 
