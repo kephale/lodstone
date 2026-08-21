@@ -222,6 +222,7 @@ class Layout:
     squeeze_hidden: bool = True
     max_axis_extent: int | None = None
     memory_policy: Literal["coarsen", "crop"] = "coarsen"
+    focus_depth_weight: float | None = None
 
     def __post_init__(self) -> None:
         if self.block_shape is not None and any(
@@ -234,6 +235,10 @@ class Layout:
             raise ValueError("max_axis_extent must be positive")
         if self.memory_policy not in {"coarsen", "crop"}:
             raise ValueError("memory_policy must be 'coarsen' or 'crop'")
+        if self.focus_depth_weight is not None and (
+            not np.isfinite(self.focus_depth_weight) or self.focus_depth_weight < 0
+        ):
+            raise ValueError("focus_depth_weight must be finite and nonnegative")
 
 
 @dataclass(frozen=True, slots=True)

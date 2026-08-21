@@ -77,6 +77,7 @@ class NDVTarget:
             squeeze_hidden=False,
             max_axis_extent=512,
             memory_policy="crop",
+            focus_depth_weight=0.5,
         )
 
     def stage_prepare(self, view: View, plan: Plan) -> NDVPreparation:

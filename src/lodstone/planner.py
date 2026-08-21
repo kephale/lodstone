@@ -329,7 +329,13 @@ class Planner:
             result.append(Tile(key, region, projected.priority, phase))
 
         if layout.memory_policy == "crop":
-            return _crop_dense_tiles(result, level, layout.memory_limit)
+            return _crop_dense_tiles(
+                result,
+                level,
+                layout.memory_limit,
+                view=view,
+                focus_depth_weight=layout.focus_depth_weight,
+            )
         return result
 
 
@@ -542,14 +548,30 @@ def _tiles_in_region(
 
 
 def _crop_dense_tiles(
-    tiles: Sequence[Tile], level: Level, memory_limit: int
+    tiles: Sequence[Tile],
+    level: Level,
+    memory_limit: int,
+    *,
+    view: View,
+    focus_depth_weight: float | None,
 ) -> list[Tile]:
     """Select a priority-ordered focus window whose dense bounds fit memory."""
 
     selected: list[Tile] = []
     start: tuple[int, ...] | None = None
     stop: tuple[int, ...] | None = None
-    for tile in sorted(tiles, key=lambda item: (item.priority, item.key.grid_index)):
+    if focus_depth_weight is None or len(view.displayed_axes) != 3:
+        priority = lambda item: (item.priority, item.key.grid_index)
+    else:
+        def priority(item: Tile) -> tuple[float, tuple[int, ...]]:
+            projection = _project_region(level.voxel_to_world, item.region, view)
+            score = (
+                projection.center_distance
+                + focus_depth_weight * projection.depth
+            )
+            return score, item.key.grid_index
+
+    for tile in sorted(tiles, key=priority):
         candidate_start = (
             tile.region.start
             if start is None
@@ -614,11 +636,20 @@ def _voxel_footprint_px(
 
 
 class _Projection:
-    __slots__ = ("priority", "visible")
+    __slots__ = ("center_distance", "depth", "priority", "visible")
 
-    def __init__(self, visible: bool, priority: float) -> None:
+    def __init__(
+        self,
+        visible: bool,
+        priority: float,
+        *,
+        center_distance: float = math.inf,
+        depth: float = math.inf,
+    ) -> None:
         self.visible = visible
         self.priority = priority
+        self.center_distance = center_distance
+        self.depth = depth
 
 
 def _project_region(matrix: np.ndarray, region: Region, view: View) -> _Projection:
@@ -650,5 +681,11 @@ def _project_region(matrix: np.ndarray, region: Region, view: View) -> _Projecti
         depth = float(np.min(clip[:, 2]))
         priority = depth * 1_000_000.0 + center_distance
     else:
+        depth = 0.0
         priority = center_distance
-    return _Projection(visible, priority)
+    return _Projection(
+        visible,
+        priority,
+        center_distance=center_distance,
+        depth=depth,
+    )

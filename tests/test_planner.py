@@ -232,6 +232,48 @@ def test_dense_crop_budget_preserves_camera_selected_level(ortho_view) -> None:
     assert np.prod(np.subtract(stop, start)) * 2 <= memory_limit
 
 
+def test_dense_crop_can_balance_focus_depth_against_screen_center(ortho_view) -> None:
+    shape = (64, 64, 64)
+    source = ArrayPyramidSource(
+        [np.zeros(shape, dtype=np.uint8)],
+        axes=("z", "y", "x"),
+        chunks=[(16, 16, 16)],
+    )
+    view = ortho_view(shape, viewport=(256, 256))
+    planner = Planner(progressive=False)
+    common = {
+        "block_shape": (16, 16, 16),
+        "memory_limit": 8 * 16**3,
+        "memory_policy": "crop",
+    }
+
+    slab = planner.plan(source.pyramid, view, Layout(**common))
+    volume = planner.plan(
+        source.pyramid,
+        view,
+        Layout(**common, focus_depth_weight=0.5),
+    )
+
+    def extent(plan, axis):
+        return max(tile.region.stop[axis] for tile in plan.desired) - min(
+            tile.region.start[axis] for tile in plan.desired
+        )
+
+    # This camera maps data axis 2 to clip depth. The balanced focus spends
+    # the same byte budget on two depth layers instead of one front slab.
+    assert extent(slab, 2) == 16
+    assert extent(volume, 2) == 32
+    assert sum(tile.region.size for tile in slab.desired) == sum(
+        tile.region.size for tile in volume.desired
+    )
+
+
+@pytest.mark.parametrize("value", [-1, float("inf"), float("nan")])
+def test_focus_depth_weight_must_be_finite_and_nonnegative(value) -> None:
+    with pytest.raises(ValueError, match="focus_depth_weight"):
+        Layout(focus_depth_weight=value)
+
+
 def test_available_tiles_are_retained_but_not_requested(ortho_view) -> None:
     source = _pyramid()
     view = ortho_view((256, 256), viewport=(512, 512))
