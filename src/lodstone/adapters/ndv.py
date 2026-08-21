@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Collection, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Self
 
 import numpy as np
@@ -23,6 +23,7 @@ class NDVPublication:
     region: Region
     data: np.ndarray
     scales: tuple[float, ...]
+    origins: tuple[float, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +46,7 @@ class NDVTarget:
         pyramid: Pyramid,
         *,
         memory_limit: int = 512 * 1024**2,
+        on_presented: Callable[[NDVPublication], None] | None = None,
     ) -> None:
         self.canvas = canvas
         self.pyramid = pyramid
@@ -53,6 +55,7 @@ class NDVTarget:
             raise ValueError("memory_limit must be positive")
         self.resident = ResidentArrays(pyramid, compose=True)
         self.handle: Any | None = None
+        self.on_presented = on_presented
 
     def layout(self, view: View, pyramid: Pyramid) -> Layout:
         return Layout(
@@ -94,10 +97,6 @@ class NDVTarget:
             raise RuntimeError("an ndv phase must describe exactly one pyramid level")
         level = levels.pop()
         window = self.resident.windows[level]
-        if any(window.region.start[axis] != 0 for axis in view.displayed_axes):
-            raise ValueError(
-                "ndv's canvas abstraction cannot place a translated dense window"
-            )
         hidden = tuple(
             axis
             for axis in range(window.region.ndim)
@@ -111,7 +110,10 @@ class NDVTarget:
         scales = tuple(
             float(np.linalg.norm(transform[:-1, axis])) for axis in view.displayed_axes
         )
-        return NDVPublication(level, window.region, data, scales)
+        world_origin = transform[:-1, :-1] @ np.asarray(window.region.start)
+        world_origin += transform[:-1, -1]
+        origins = tuple(float(world_origin[axis]) for axis in view.displayed_axes)
+        return NDVPublication(level, window.region, data, scales, origins)
 
     def phase_complete(
         self,
@@ -122,13 +124,19 @@ class NDVTarget:
     ) -> None:
         ndim = len(view.displayed_axes)
         self.canvas.set_ndim(ndim)
-        if self.handle is None:
+        first_publication = self.handle is None
+        if first_publication:
             factory = self.canvas.add_image if ndim == 2 else self.canvas.add_volume
             self.handle = factory(publication.data)
         else:
             self.handle.set_data(publication.data)
-        self.canvas.set_scales(publication.scales)
+        self.canvas.set_scales(publication.scales, reset_range=False)
+        self.canvas.set_origins(publication.origins)
+        if first_publication:
+            self.canvas.set_range()
         self.canvas.refresh()
+        if self.on_presented is not None:
+            self.on_presented(publication)
 
     def discard(self, keys: Collection[TileKey]) -> None:
         self.resident.discard(keys)
@@ -163,6 +171,7 @@ class NDVController:
         dispatch: Callable[[Callable[[], None]], None] | None = None,
         runtime: Runtime | None = None,
         memory_limit: int = 512 * 1024**2,
+        on_presented: Callable[[NDVPublication], None] | None = None,
         **stream_options: Any,
     ) -> None:
         self.viewer = viewer_or_canvas if hasattr(viewer_or_canvas, "canvas") else None
@@ -177,6 +186,7 @@ class NDVController:
             self.canvas,
             source.pyramid,
             memory_limit=memory_limit,
+            on_presented=on_presented,
         )
         self.stream = Stream(
             source,
@@ -185,11 +195,30 @@ class NDVController:
             runtime=self.runtime,
             **stream_options,
         )
+        self._last_view: View | None = None
+        self._camera_signal = getattr(self.canvas, "cameraChanged", None)
+        if self._camera_signal is not None:
+            self._camera_signal.connect(self._camera_changed)
 
     def update(self, view: View) -> Plan:
+        self._last_view = view
         return self.stream.update(view)
 
+    def _camera_changed(self) -> None:
+        if self._last_view is None:
+            return
+        viewport, world_to_clip = self.canvas.camera_state()
+        self.update(
+            replace(
+                self._last_view,
+                viewport=viewport,
+                world_to_clip=world_to_clip,
+            )
+        )
+
     def close(self) -> None:
+        if self._camera_signal is not None:
+            self._camera_signal.disconnect(self._camera_changed)
         self.stream.close()
         self.target.close()
         if self._owns_runtime:
