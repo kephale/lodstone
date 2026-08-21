@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, replace
+from threading import Condition, Thread
+from time import monotonic
 from typing import Any, Self
 
 import numpy as np
@@ -172,6 +174,8 @@ class NDVController:
         runtime: Runtime | None = None,
         memory_limit: int = 512 * 1024**2,
         on_presented: Callable[[NDVPublication], None] | None = None,
+        on_targeted: Callable[[Plan], None] | None = None,
+        camera_debounce_ms: int = 180,
         **stream_options: Any,
     ) -> None:
         self.viewer = viewer_or_canvas if hasattr(viewer_or_canvas, "canvas") else None
@@ -180,6 +184,16 @@ class NDVController:
         )
         if dispatch is None:
             dispatch = getattr(viewer_or_canvas, "dispatch", None)
+        self._dispatch = dispatch or (lambda callback: callback())
+        self._on_targeted = on_targeted
+        self._camera_debounce_seconds = camera_debounce_ms / 1000
+        if self._camera_debounce_seconds < 0:
+            raise ValueError("camera_debounce_ms must be nonnegative")
+        self._camera_condition = Condition()
+        self._pending_camera_view: View | None = None
+        self._camera_deadline = 0.0
+        self._camera_generation = 0
+        self._closed = False
         self.runtime = runtime or Runtime()
         self._owns_runtime = runtime is None
         self.target = NDVTarget(
@@ -191,7 +205,7 @@ class NDVController:
         self.stream = Stream(
             source,
             self.target,
-            dispatch=dispatch or (lambda callback: callback()),
+            dispatch=self._dispatch,
             runtime=self.runtime,
             **stream_options,
         )
@@ -199,26 +213,69 @@ class NDVController:
         self._camera_signal = getattr(self.canvas, "cameraChanged", None)
         if self._camera_signal is not None:
             self._camera_signal.connect(self._camera_changed)
+        self._camera_thread = Thread(
+            target=self._camera_worker,
+            name="lodstone-ndv-camera",
+            daemon=True,
+        )
+        self._camera_thread.start()
 
     def update(self, view: View) -> Plan:
         self._last_view = view
-        return self.stream.update(view)
+        plan = self.stream.update(view)
+        self._notify_targeted(plan)
+        return plan
 
     def _camera_changed(self) -> None:
         if self._last_view is None:
             return
         viewport, world_to_clip = self.canvas.camera_state()
-        self.update(
-            replace(
-                self._last_view,
-                viewport=viewport,
-                world_to_clip=world_to_clip,
-            )
+        view = replace(
+            self._last_view,
+            viewport=viewport,
+            world_to_clip=world_to_clip,
         )
+        self._last_view = view
+        with self._camera_condition:
+            if self._closed:
+                return
+            self._camera_generation += 1
+            self._pending_camera_view = view
+            self._camera_deadline = monotonic() + self._camera_debounce_seconds
+            self._camera_condition.notify()
+
+    def _camera_worker(self) -> None:
+        while True:
+            with self._camera_condition:
+                while self._pending_camera_view is None and not self._closed:
+                    self._camera_condition.wait()
+                if self._closed:
+                    return
+                remaining = self._camera_deadline - monotonic()
+                if remaining > 0:
+                    self._camera_condition.wait(remaining)
+                    continue
+                view = self._pending_camera_view
+                generation = self._camera_generation
+                self._pending_camera_view = None
+            plan = self.stream.plan(view)
+            with self._camera_condition:
+                if self._closed or generation != self._camera_generation:
+                    continue
+            self.stream.submit(view, plan)
+            self._notify_targeted(plan)
+
+    def _notify_targeted(self, plan: Plan) -> None:
+        if self._on_targeted is not None:
+            self._dispatch(lambda: self._on_targeted(plan))
 
     def close(self) -> None:
         if self._camera_signal is not None:
             self._camera_signal.disconnect(self._camera_changed)
+        with self._camera_condition:
+            self._closed = True
+            self._camera_condition.notify()
+        self._camera_thread.join(timeout=1)
         self.stream.close()
         self.target.close()
         if self._owns_runtime:

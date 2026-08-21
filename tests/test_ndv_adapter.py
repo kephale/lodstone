@@ -55,6 +55,32 @@ class Canvas:
         self.refreshes += 1
 
 
+class Event:
+    def __init__(self) -> None:
+        self.callback = None
+
+    def connect(self, callback) -> None:
+        self.callback = callback
+
+    def disconnect(self, callback) -> None:
+        if self.callback == callback:
+            self.callback = None
+
+    def emit(self) -> None:
+        if self.callback is not None:
+            self.callback()
+
+
+class CameraCanvas(Canvas):
+    def __init__(self) -> None:
+        super().__init__()
+        self.cameraChanged = Event()
+        self.world_to_clip = np.eye(4)
+
+    def camera_state(self):
+        return (64, 64), self.world_to_clip.copy()
+
+
 def test_ndv_target_presents_dense_progressive_phases(ortho_view, wait) -> None:
     fine = np.arange(64, dtype=np.uint16).reshape(8, 8)
     coarse = fine[::2, ::2]
@@ -139,5 +165,35 @@ def test_ndv_target_places_translated_dense_window(wait) -> None:
         assert canvas.origins == (8.0, 8.0)
         assert canvas.handle.history[-1].shape == (16, 16)
         assert presented[-1].region.start == (8, 8)
+    finally:
+        controller.close()
+
+
+def test_ndv_camera_updates_are_debounced_off_interaction_thread(ortho_view, wait):
+    data = np.arange(32 * 32, dtype=np.uint16).reshape(32, 32)
+    source = SimulatedSource([data], chunks=[(8, 8)])
+    canvas = CameraCanvas()
+    targets = []
+    controller = NDVController(
+        canvas,
+        source,
+        memory_limit=512,
+        camera_debounce_ms=30,
+        on_targeted=lambda plan: targets.append(plan.target_level),
+    )
+    try:
+        controller.update(ortho_view(data.shape, viewport=(64, 64)))
+        wait(lambda: controller.stream.status.state == "complete")
+        targets.clear()
+
+        for offset in range(10):
+            canvas.world_to_clip[:2, -1] = -offset
+            canvas.cameraChanged.emit()
+
+        # Camera callbacks only capture the newest view; planning happens after
+        # the trailing debounce on the dedicated camera worker.
+        assert targets == []
+        wait(lambda: len(targets) == 1)
+        assert targets == [0]
     finally:
         controller.close()

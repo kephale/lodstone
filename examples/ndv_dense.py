@@ -12,8 +12,8 @@ import argparse
 import ndv
 import numpy as np
 
-from lodstone import View
-from lodstone.adapters.ndv import NDVController
+from lodstone import Plan, View
+from lodstone.adapters.ndv import NDVController, NDVPublication
 from lodstone.sources import OMEZarrSource
 
 DEFAULT_URL = (
@@ -41,17 +41,50 @@ def main() -> None:
     world_to_clip[:-1, -1] = -1.0
 
     viewer = ndv.ArrayViewer()
-    widget = viewer.widget
+    widget = viewer.widget()
+    from qtpy.QtCore import Qt
+    from qtpy.QtWidgets import QLabel
 
-    def show_presented_level(publication) -> None:
+    indicator = QLabel("Lodstone · waiting", widget)
+    indicator.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+    indicator.setStyleSheet(
+        "background: rgba(0, 0, 0, 190); color: white; "
+        "padding: 6px 9px; border-radius: 4px; font-weight: bold;"
+    )
+    indicator.move(12, 12)
+    indicator.adjustSize()
+    indicator.show()
+    indicator.raise_()
+    active_level: int | None = None
+    target_level: int | None = None
+
+    def update_indicator() -> None:
+        active = "waiting" if active_level is None else f"L{active_level}"
+        target = "?" if target_level is None else f"L{target_level}"
+        indicator.setText(f"Lodstone · active {active} · target {target}")
+        indicator.adjustSize()
+        indicator.raise_()
+
+    def show_presented_level(publication: NDVPublication) -> None:
+        nonlocal active_level
+        active_level = publication.level
         spacing = " × ".join(f"{scale:g}" for scale in publication.scales)
         title = f"Lodstone Zebrahub — rendered L{publication.level} ({spacing})"
         print(title)
-        setter = getattr(widget, "setWindowTitle", None)
-        if setter is not None:
-            setter(title)
+        widget.window().setWindowTitle(title)
+        update_indicator()
 
-    controller = NDVController(viewer, source, on_presented=show_presented_level)
+    def show_target_level(plan: Plan) -> None:
+        nonlocal target_level
+        target_level = plan.target_level
+        update_indicator()
+
+    controller = NDVController(
+        viewer,
+        source,
+        on_presented=show_presented_level,
+        on_targeted=show_target_level,
+    )
     plan = controller.update(
         View(
             displayed_axes=(0, 1, 2),
