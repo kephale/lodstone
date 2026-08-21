@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import numpy as np
 
 from lodstone import View
@@ -81,7 +83,7 @@ class CameraCanvas(Canvas):
         return (64, 64), self.world_to_clip.copy()
 
 
-def test_ndv_target_presents_dense_progressive_phases(ortho_view, wait) -> None:
+def test_ndv_target_presents_dense_camera_phase(ortho_view, wait) -> None:
     fine = np.arange(64, dtype=np.uint16).reshape(8, 8)
     coarse = fine[::2, ::2]
     source = SimulatedSource(
@@ -97,9 +99,8 @@ def test_ndv_target_presents_dense_progressive_phases(ortho_view, wait) -> None:
 
         assert canvas.kinds == ["image"]
         assert canvas.ndim == 2
-        assert len(canvas.handle.history) == 2
-        np.testing.assert_array_equal(canvas.handle.history[0], coarse)
-        np.testing.assert_array_equal(canvas.handle.history[1], fine)
+        assert len(canvas.handle.history) == 1
+        np.testing.assert_array_equal(canvas.handle.history[0], fine)
         assert canvas.scales == (1.0, 1.0)
         assert canvas.origins == (0.0, 0.0)
         assert canvas.range_resets == 1
@@ -148,6 +149,7 @@ def test_ndv_target_places_translated_dense_window(wait) -> None:
         canvas,
         source,
         memory_limit=512,
+        block_shape=(8, 8),
         on_presented=presented.append,
     )
     world_to_clip = np.eye(4)
@@ -178,6 +180,7 @@ def test_ndv_camera_updates_are_debounced_off_interaction_thread(ortho_view, wai
         canvas,
         source,
         memory_limit=512,
+        block_shape=(8, 8),
         camera_debounce_ms=30,
         on_targeted=lambda plan: targets.append(plan.target_level),
     )
@@ -194,6 +197,9 @@ def test_ndv_camera_updates_are_debounced_off_interaction_thread(ortho_view, wai
         # the trailing debounce on the dedicated camera worker.
         assert targets == []
         wait(lambda: len(targets) == 1)
+        assert targets == [0]
+        canvas.cameraChanged.emit()
+        time.sleep(0.06)
         assert targets == [0]
     finally:
         controller.close()

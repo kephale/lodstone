@@ -74,7 +74,10 @@ class Planner:
             target_tiles = self._tiles_for_level(
                 pyramid, view, layout, target_level, phase=0
             )
-            if _tiles_nbytes(target_tiles, pyramid) <= layout.memory_limit:
+            if layout.memory_policy == "crop":
+                if target_tiles:
+                    break
+            elif _tiles_nbytes(target_tiles, pyramid) <= layout.memory_limit:
                 break
             target_level += 1
         levels = self._levels(pyramid, view, target_level)
@@ -315,6 +318,8 @@ class Planner:
             key = TileKey(level_index, tuple(grid_index), selection)
             result.append(Tile(key, region, projected.priority, phase))
 
+        if layout.memory_policy == "crop":
+            return _crop_dense_tiles(result, level, layout.memory_limit)
         return result
 
 
@@ -524,6 +529,36 @@ def _tiles_in_region(
         projection = _project_region(level.voxel_to_world, tile_region, view)
         tiles.append(Tile(key, tile_region, projection.priority, phase))
     return tiles
+
+
+def _crop_dense_tiles(
+    tiles: Sequence[Tile], level: Level, memory_limit: int
+) -> list[Tile]:
+    """Select a priority-ordered focus window whose dense bounds fit memory."""
+
+    selected: list[Tile] = []
+    start: tuple[int, ...] | None = None
+    stop: tuple[int, ...] | None = None
+    for tile in sorted(tiles, key=lambda item: (item.priority, item.key.grid_index)):
+        candidate_start = (
+            tile.region.start
+            if start is None
+            else tuple(min(a, b) for a, b in zip(start, tile.region.start, strict=True))
+        )
+        candidate_stop = (
+            tile.region.stop
+            if stop is None
+            else tuple(max(a, b) for a, b in zip(stop, tile.region.stop, strict=True))
+        )
+        size = math.prod(
+            upper - lower
+            for lower, upper in zip(candidate_start, candidate_stop, strict=True)
+        )
+        if size * level.dtype.itemsize > memory_limit:
+            continue
+        selected.append(tile)
+        start, stop = candidate_start, candidate_stop
+    return selected
 
 
 def _local_world(

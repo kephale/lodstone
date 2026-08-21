@@ -11,6 +11,7 @@ from typing import Any, Self
 import numpy as np
 
 from ..model import Layout, Plan, Pyramid, Region, TileKey, Update, View
+from ..planner import Planner
 from ..resident import ResidentArrays, ResidentLease
 from ..runtime import Runtime
 from ..source import Source
@@ -47,7 +48,8 @@ class NDVTarget:
         canvas: Any,
         pyramid: Pyramid,
         *,
-        memory_limit: int = 512 * 1024**2,
+        memory_limit: int = 64 * 1024**2,
+        block_shape: tuple[int, ...] = (64, 128, 128),
         on_presented: Callable[[NDVPublication], None] | None = None,
     ) -> None:
         self.canvas = canvas
@@ -55,6 +57,7 @@ class NDVTarget:
         self.memory_limit = int(memory_limit)
         if self.memory_limit <= 0:
             raise ValueError("memory_limit must be positive")
+        self.block_shape = tuple(int(value) for value in block_shape)
         self.resident = ResidentArrays(pyramid, compose=True)
         self.handle: Any | None = None
         self.on_presented = on_presented
@@ -62,8 +65,11 @@ class NDVTarget:
     def layout(self, view: View, pyramid: Pyramid) -> Layout:
         return Layout(
             kind="dense",
+            block_shape=self.block_shape[-len(view.displayed_axes) :],
             memory_limit=self.memory_limit,
             squeeze_hidden=False,
+            max_axis_extent=512,
+            memory_policy="crop",
         )
 
     def stage_prepare(self, view: View, plan: Plan) -> NDVPreparation:
@@ -172,7 +178,8 @@ class NDVController:
         *,
         dispatch: Callable[[Callable[[], None]], None] | None = None,
         runtime: Runtime | None = None,
-        memory_limit: int = 512 * 1024**2,
+        memory_limit: int = 64 * 1024**2,
+        block_shape: tuple[int, ...] = (64, 128, 128),
         on_presented: Callable[[NDVPublication], None] | None = None,
         on_targeted: Callable[[Plan], None] | None = None,
         camera_debounce_ms: int = 180,
@@ -200,7 +207,17 @@ class NDVController:
             self.canvas,
             source.pyramid,
             memory_limit=memory_limit,
+            block_shape=block_shape,
             on_presented=on_presented,
+        )
+        stream_options.setdefault(
+            "planner",
+            Planner(
+                lod_bias=2.0,
+                progressive=True,
+                max_intermediate_levels=0,
+                max_initial_voxel_footprint=4.0,
+            ),
         )
         self.stream = Stream(
             source,
@@ -230,6 +247,17 @@ class NDVController:
         if self._last_view is None:
             return
         viewport, world_to_clip = self.canvas.camera_state()
+        # Scene-bound changes can alter only the depth/near-far transform when
+        # a replacement volume is published. They are not camera interaction
+        # and must not replay the same plan. The first two clip rows fully
+        # describe screen-space pan, zoom, and rotation for LOD selection.
+        if viewport == self._last_view.viewport and np.allclose(
+            world_to_clip[:2],
+            self._last_view.world_to_clip[:2],
+            rtol=1e-7,
+            atol=1e-7,
+        ):
+            return
         view = replace(
             self._last_view,
             viewport=viewport,

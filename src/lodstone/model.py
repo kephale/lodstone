@@ -221,6 +221,7 @@ class Layout:
     memory_limit: int = 1 << 30
     squeeze_hidden: bool = True
     max_axis_extent: int | None = None
+    memory_policy: Literal["coarsen", "crop"] = "coarsen"
 
     def __post_init__(self) -> None:
         if self.block_shape is not None and any(
@@ -231,6 +232,8 @@ class Layout:
             raise ValueError("memory_limit must be positive")
         if self.max_axis_extent is not None and self.max_axis_extent <= 0:
             raise ValueError("max_axis_extent must be positive")
+        if self.memory_policy not in {"coarsen", "crop"}:
+            raise ValueError("memory_policy must be 'coarsen' or 'crop'")
 
 
 @dataclass(frozen=True, slots=True)

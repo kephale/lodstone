@@ -190,6 +190,30 @@ def test_gpu_budget_can_select_a_coarser_level(ortho_view) -> None:
     assert plan.target_level == 1
 
 
+def test_dense_crop_budget_preserves_camera_selected_level(ortho_view) -> None:
+    source = _pyramid()
+    view = ortho_view((256, 256), viewport=(512, 512))
+    memory_limit = 128 * 128 * 2
+    plan = Planner(progressive=False).plan(
+        source.pyramid,
+        view,
+        Layout(
+            block_shape=(32, 32),
+            memory_limit=memory_limit,
+            memory_policy="crop",
+        ),
+    )
+
+    assert plan.target_level == 0
+    start = tuple(
+        min(tile.region.start[axis] for tile in plan.desired) for axis in range(2)
+    )
+    stop = tuple(
+        max(tile.region.stop[axis] for tile in plan.desired) for axis in range(2)
+    )
+    assert np.prod(np.subtract(stop, start)) * 2 <= memory_limit
+
+
 def test_available_tiles_are_retained_but_not_requested(ortho_view) -> None:
     source = _pyramid()
     view = ortho_view((256, 256), viewport=(512, 512))

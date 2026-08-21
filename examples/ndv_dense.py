@@ -36,8 +36,13 @@ def main() -> None:
     finest = source.pyramid.levels[0]
     linear = finest.voxel_to_world[:-1, :-1]
     world_extent = np.abs(linear) @ np.asarray(finest.shape, dtype=np.float64)
-    world_to_clip = np.eye(4, dtype=np.float64)
-    world_to_clip[np.arange(3), np.arange(3)] = 2.0 / world_extent
+    # ndv's scene axes are XYZ while the source axes are ZYX. Bootstrap a
+    # top-down full-volume view; camera snapshots take over after publication.
+    world_to_clip = np.zeros((4, 4), dtype=np.float64)
+    world_to_clip[0, 2] = 2.0 / world_extent[2]
+    world_to_clip[1, 1] = 2.0 / world_extent[1]
+    world_to_clip[2, 0] = 2.0 / world_extent[0]
+    world_to_clip[3, 3] = 1.0
     world_to_clip[:-1, -1] = -1.0
 
     viewer = ndv.ArrayViewer()
@@ -89,7 +94,7 @@ def main() -> None:
         View(
             displayed_axes=(0, 1, 2),
             index=(None, None, None),
-            viewport=(800, 600),
+            viewport=(600, 600),
             world_to_clip=world_to_clip,
         )
     )
