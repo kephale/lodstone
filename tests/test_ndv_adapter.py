@@ -16,6 +16,7 @@ class Handle:
         self.visible = True
         self.scales = None
         self.origins = None
+        self.clims = None
 
     def set_data(self, data) -> None:
         self.history.append(np.asarray(data))
@@ -23,6 +24,9 @@ class Handle:
     def set_world_transform(self, scales, origins) -> None:
         self.scales = scales
         self.origins = origins
+
+    def set_clims(self, clims) -> None:
+        self.clims = clims
 
     def set_visible(self, visible) -> None:
         self.visible = visible
@@ -133,6 +137,7 @@ def test_ndv_target_presents_dense_camera_phase(ortho_view, wait) -> None:
         np.testing.assert_array_equal(canvas.handle.history[0], fine)
         assert canvas.handle.scales == (1.0, 1.0)
         assert canvas.handle.origins == (0.0, 0.0)
+        assert canvas.handle.clims == (0.0, 63.0)
         assert canvas.range_resets == 1
     finally:
         handle = canvas.handle
@@ -230,6 +235,35 @@ def test_ndv_target_keeps_masked_coarse_context_around_fine_focus(
         assert np.count_nonzero(context.history[-1]) > 0
         assert np.all(focus.history[-1] == 7)
         assert canvas.range_resets == 1
+    finally:
+        controller.close()
+
+
+def test_ndv_coarse_mask_preserves_context_beneath_empty_fine_space(
+    ortho_view, wait
+) -> None:
+    fine = np.zeros((32, 32), dtype=np.uint16)
+    fine[16, 16] = 7
+    coarse = np.full((8, 8), 3, dtype=np.uint16)
+    source = SimulatedSource(
+        [fine, coarse],
+        transforms=[np.eye(3), np.diag([4.0, 4.0, 1.0])],
+        chunks=[(8, 8), (4, 4)],
+    )
+    canvas = Canvas()
+    controller = NDVController(
+        canvas,
+        source,
+        memory_limit=512,
+        block_shape=(8, 8),
+    )
+    try:
+        controller.update(ortho_view(fine.shape, viewport=(128, 128)))
+        wait(lambda: controller.stream.status.state == "complete")
+
+        context, focus = canvas.handles
+        assert np.count_nonzero(focus.history[-1]) == 1
+        assert np.count_nonzero(context.history[-1]) == context.history[-1].size - 1
     finally:
         controller.close()
 

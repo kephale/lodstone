@@ -268,6 +268,48 @@ def test_dense_crop_can_balance_focus_depth_against_screen_center(ortho_view) ->
     )
 
 
+def test_dense_crop_tunes_canvas_coverage_against_depth_reach(ortho_view) -> None:
+    shape = (64, 64, 64)
+    source = ArrayPyramidSource(
+        [np.zeros(shape, dtype=np.uint8)],
+        axes=("z", "y", "x"),
+        chunks=[(16, 16, 16)],
+    )
+    view = ortho_view(shape, viewport=(256, 256))
+    planner = Planner(progressive=False)
+    common = {
+        "block_shape": (16, 16, 16),
+        "memory_limit": 8 * 16**3,
+        "memory_policy": "crop",
+    }
+
+    canvas = planner.plan(
+        source.pyramid,
+        view,
+        Layout(**common, focus_depth_weight=8.0),
+    )
+    depth = planner.plan(
+        source.pyramid,
+        view,
+        Layout(**common, focus_depth_weight=0.5),
+    )
+
+    def extents(plan):
+        return tuple(
+            max(tile.region.stop[axis] for tile in plan.desired)
+            - min(tile.region.start[axis] for tile in plan.desired)
+            for axis in range(3)
+        )
+
+    canvas_extents = extents(canvas)
+    depth_extents = extents(depth)
+    # This camera maps axis 2 to depth. The canvas-heavy policy spends more of
+    # the same dense budget in axes 0/1; the depth-heavy policy reaches farther
+    # along axis 2 around the screen center.
+    assert canvas_extents[0] * canvas_extents[1] > (depth_extents[0] * depth_extents[1])
+    assert canvas_extents[2] < depth_extents[2]
+
+
 @pytest.mark.parametrize("value", [-1, float("inf"), float("nan")])
 def test_focus_depth_weight_must_be_finite_and_nonnegative(value) -> None:
     with pytest.raises(ValueError, match="focus_depth_weight"):

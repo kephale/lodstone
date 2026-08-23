@@ -166,6 +166,7 @@ class NDVTarget:
             self.handles[publication.level] = handle
         else:
             handle.set_data(publication.data)
+        handle.set_clims(_data_clims(publication.data))
         handle.set_world_transform(publication.scales, publication.origins)
         handle.set_visible(True)
         self.publications[publication.level] = publication
@@ -212,14 +213,23 @@ class NDVTarget:
         ).intersection(context.region)
         masked = context.data.copy()
         if overlap is not None:
-            slices = tuple(
-                slice(
-                    overlap.start[axis] - context.region.start[axis],
-                    overlap.stop[axis] - context.region.start[axis],
+            if np.count_nonzero(focus.data) == focus.data.size:
+                slices = tuple(
+                    slice(
+                        overlap.start[axis] - context.region.start[axis],
+                        overlap.stop[axis] - context.region.start[axis],
+                    )
+                    for axis in context.data_axes
                 )
-                for axis in context.data_axes
-            )
-            masked[slices] = 0
+                masked[slices] = 0
+            else:
+                _mask_occupied_context(
+                    masked,
+                    context,
+                    focus,
+                    self.pyramid.levels[focus.level].voxel_to_world,
+                    self.pyramid.levels[self._context_level].voxel_to_world,
+                )
         handle.set_data(masked)
         handle.set_world_transform(context.scales, context.origins)
         self._masked_focus = identity
@@ -252,6 +262,66 @@ def _region_in_level(
     start = tuple(max(0, int(np.floor(value))) for value in mapped.min(axis=0))
     stop = tuple(max(0, int(np.ceil(value))) for value in mapped.max(axis=0))
     return Region(start, stop)
+
+
+def _data_clims(data: np.ndarray) -> tuple[float, float]:
+    """Return finite nondegenerate limits independent of renderer defaults."""
+    if np.issubdtype(data.dtype, np.inexact):
+        finite = data[np.isfinite(data)]
+        if not finite.size:
+            return (0.0, 1.0)
+        lower = float(np.min(finite))
+        upper = float(np.max(finite))
+    else:
+        lower = float(np.min(data))
+        upper = float(np.max(data))
+    if lower == upper:
+        upper = lower + 1.0
+    return lower, upper
+
+
+def _mask_occupied_context(
+    masked: np.ndarray,
+    context: NDVPublication,
+    focus: NDVPublication,
+    focus_to_world: np.ndarray,
+    context_to_world: np.ndarray,
+) -> None:
+    """Mask context samples covered by nonzero fine data.
+
+    A dense focus publication can contain a great deal of empty space. Masking
+    its complete box removes useful coarse landmarks in sparse volumes, while
+    masking only occupied fine samples still prevents additive brightening for
+    dense data. Work one leading-axis plane at a time to bound temporary memory.
+    """
+    context_from_focus = np.linalg.solve(context_to_world, focus_to_world)
+    ndim = focus.region.ndim
+    base = np.asarray(focus.region.start, dtype=np.float64) + 0.5
+    data = focus.data
+    for leading in range(data.shape[0]):
+        occupied = np.argwhere(data[leading] != 0)
+        if not len(occupied):
+            continue
+        local = np.column_stack(
+            (np.full(len(occupied), leading, dtype=np.int64), occupied)
+        )
+        points = np.broadcast_to(base, (len(local), ndim)).copy()
+        for local_axis, data_axis in enumerate(focus.data_axes):
+            points[:, data_axis] += local[:, local_axis]
+        homogeneous = np.column_stack((points, np.ones(len(points))))
+        mapped = (context_from_focus @ homogeneous.T).T[:, :ndim]
+        indices = np.floor(mapped).astype(np.int64)
+        context_indices = np.column_stack(
+            [
+                indices[:, axis] - context.region.start[axis]
+                for axis in context.data_axes
+            ]
+        )
+        valid = np.ones(len(context_indices), dtype=bool)
+        for axis, size in enumerate(masked.shape):
+            valid &= (context_indices[:, axis] >= 0) & (context_indices[:, axis] < size)
+        if np.any(valid):
+            masked[tuple(context_indices[valid].T)] = 0
 
 
 class NDVController:
@@ -410,6 +480,7 @@ class NDVController:
                 view = self._pending_camera_view
                 generation = self._camera_generation
                 self._pending_camera_view = None
+            assert view is not None
             plan = self.stream.plan(view)
             with self._camera_condition:
                 if self._closed or generation != self._camera_generation:
@@ -428,8 +499,9 @@ class NDVController:
         self._dispatch(guarded)
 
     def _notify_targeted(self, plan: Plan) -> None:
-        if self._on_targeted is not None:
-            self._dispatch(lambda: self._on_targeted(plan))
+        callback = self._on_targeted
+        if callback is not None:
+            self._dispatch(lambda: callback(plan))
 
     def close(self) -> None:
         if self._camera_signal is not None:

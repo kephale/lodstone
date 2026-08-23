@@ -592,7 +592,14 @@ def _crop_dense_tiles(
 
         def priority(item: Tile) -> tuple[float, tuple[int, ...]]:
             projection = _project_region(level.voxel_to_world, item.region, view)
-            score = projection.center_distance + focus_depth_weight * projection.depth
+            # Work in perceptual NDC units.  Euclidean screen distance grows
+            # linearly from the visual center, while depth is normalized from
+            # near=0 to far=1.  A large depth weight therefore fills the canvas
+            # on near planes first; a small nonzero weight builds a central
+            # column front-to-back without falling back to data-axis ordering.
+            screen_distance = math.sqrt(max(0.0, projection.center_distance))
+            normalized_depth = min(1.0, max(0.0, (projection.depth + 1.0) / 2.0))
+            score = screen_distance + focus_depth_weight * normalized_depth
             return score, item.key.grid_index
 
     for tile in sorted(tiles, key=priority):

@@ -25,7 +25,15 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("url", nargs="?", default=DEFAULT_URL)
     parser.add_argument("--time", type=int, default=400)
+    parser.add_argument(
+        "--backend",
+        choices=("vispy", "pygfx"),
+        help="ndv canvas backend (defaults to ndv's automatic selection)",
+    )
     arguments = parser.parse_args()
+
+    if arguments.backend is not None:
+        ndv.set_canvas_backend(arguments.backend)
 
     print(f"Opening Zebrahub timepoint {arguments.time} from {arguments.url}")
     source = OMEZarrSource.open(
@@ -46,8 +54,10 @@ def main() -> None:
 
     viewer = ndv.ArrayViewer()
     widget = viewer.widget()
+    from _ndv_block_overlay import BlockOverlay
     from qtpy.QtCore import Qt, QTimer
     from qtpy.QtWidgets import (
+        QCheckBox,
         QFormLayout,
         QFrame,
         QHBoxLayout,
@@ -56,7 +66,14 @@ def main() -> None:
         QWidget,
     )
 
-    indicator = QLabel("Lodstone · waiting", widget)
+    block_overlay = BlockOverlay(viewer.canvas, source.pyramid)
+    viewer.canvas.cameraChanged.connect(lambda: block_overlay.update())
+
+    backend_name = {
+        "VispyArrayCanvas": "VisPy",
+        "GfxArrayCanvas": "PyGFX",
+    }.get(type(viewer.canvas).__name__, type(viewer.canvas).__name__)
+    indicator = QLabel(f"Lodstone · {backend_name} · waiting", widget)
     indicator.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
     indicator.setStyleSheet(
         "background: rgba(0, 0, 0, 190); color: white; "
@@ -72,7 +89,9 @@ def main() -> None:
     def update_indicator() -> None:
         active = "waiting" if active_level is None else f"L{active_level}"
         target = "?" if target_level is None else f"L{target_level}"
-        indicator.setText(f"Lodstone · active {active} · target {target}")
+        indicator.setText(
+            f"Lodstone · {backend_name} · active {active} · target {target}"
+        )
         indicator.adjustSize()
         indicator.raise_()
 
@@ -88,6 +107,24 @@ def main() -> None:
     def show_target_level(plan: Plan) -> None:
         nonlocal target_level
         target_level = plan.target_level
+        block_overlay.set_plan(plan)
+        tiles = [tile for tile in plan.desired if tile.level == plan.target_level]
+        if tiles:
+            ndim = tiles[0].region.ndim
+            start = tuple(
+                min(tile.region.start[axis] for tile in tiles) for axis in range(ndim)
+            )
+            stop = tuple(
+                max(tile.region.stop[axis] for tile in tiles) for axis in range(ndim)
+            )
+            shape = tuple(upper - lower for lower, upper in zip(start, stop))
+            level = source.pyramid.levels[plan.target_level]
+            dense_mib = np.prod(shape) * level.dtype.itemsize / 1024**2
+            block_text = "×".join(str(value) for value in shape)
+            geometry_value.setText(
+                f"L{plan.target_level} · {len(tiles)} blk · {dense_mib:.1f} MiB\n"
+                f"{block_text}"
+            )
         update_indicator()
 
     controller = NDVController(
@@ -122,12 +159,22 @@ def main() -> None:
         row_layout.addWidget(readout)
         return row, slider, readout
 
-    budget_row, budget_slider, budget_value = slider_row(32, 256, 64)
-    depth_row, depth_slider, depth_value = slider_row(0, 100, 75)
+    budget_row, budget_slider, budget_value = slider_row(32, 512, 128)
+    depth_row, depth_slider, depth_value = slider_row(0, 100, 60)
     lod_row, lod_slider, lod_value = slider_row(50, 300, 200)
+    depth_slider.setToolTip(
+        "0% favors high-resolution coverage across the canvas; "
+        "100% favors a central column reaching front-to-back"
+    )
+    geometry_value = QLabel("waiting", controls)
+    blocks_toggle = QCheckBox("Show planned block wireframes", controls)
+    blocks_toggle.setChecked(True)
+    blocks_toggle.toggled.connect(block_overlay.setVisible)
     form.addRow("Focus MiB", budget_row)
-    form.addRow("Depth coverage", depth_row)
+    form.addRow("Depth reach", depth_row)
     form.addRow("LOD bias", lod_row)
+    form.addRow("Focus box", geometry_value)
+    form.addRow("Diagnostics", blocks_toggle)
 
     tune_timer = QTimer(controls)
     tune_timer.setSingleShot(True)
@@ -135,12 +182,14 @@ def main() -> None:
 
     def configure_focus() -> None:
         memory_mib = budget_slider.value()
-        # A larger UI value means more camera-axis coverage. Lodstone's weight
-        # is the inverse: zero treats screen-center and all depths equally.
-        depth_weight = 2.0 * (1.0 - depth_slider.value() / 100.0)
+        # Span a wide perceptual range: the canvas-heavy endpoint strongly
+        # penalizes far chunks, while the depth-heavy endpoint retains a small
+        # near-to-far tie breaker instead of reverting to data-axis ordering.
+        depth_fraction = depth_slider.value() / 100.0
+        depth_weight = 8.0 * (0.5 / 8.0) ** depth_fraction
         lod_bias = lod_slider.value() / 100.0
         budget_value.setText(str(memory_mib))
-        depth_value.setText(f"{depth_slider.value()}%")
+        depth_value.setText(f"{depth_slider.value()}% depth")
         lod_value.setText(f"{lod_bias:.2f}")
         controller.set_focus_policy(
             memory_limit=memory_mib * 1024**2,
