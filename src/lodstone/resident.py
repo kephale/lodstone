@@ -261,9 +261,7 @@ class ResidentArrays:
         if self.pending is None:
             return ResidentTransition()
         active_levels = (
-            {key.level for key in plan.retain}
-            if retain_levels
-            else {plan.target_level}
+            {key.level for key in plan.retain} if retain_levels else {plan.target_level}
         )
         active_levels.add(plan.target_level)
         next_active = {

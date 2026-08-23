@@ -7,6 +7,10 @@ into progressive array `Update`s accepted by a viewer-specific `Target`.
 It is intended to be shared by clients such as ChimeraX, napari, and ndv.
 Lodstone does not create windows, textures, shaders, layers, or viewer models.
 
+Lodstone is currently an alpha. The renderer-neutral core is the compatibility
+boundary for the 0.1 series; viewer adapters are experimental and may change
+between prereleases as their host applications establish public streaming APIs.
+
 ```text
 Source + View + Target
           │
@@ -165,11 +169,11 @@ ndv.run_app()
 controller.close()
 ```
 
-The initial adapter supports origin-aligned dense 2-D and 3-D windows, hidden
-axis selections, progressive phase replacement, and shared runtimes. See
-`examples/ndv_dense.py`. Camera-driven subvolume placement awaits a public ndv
-canvas transform API; it is reported explicitly instead of silently displaying
-a translated window at the origin.
+The initial adapter supports translated dense 2-D and 3-D windows, hidden-axis
+selections, camera-driven replanning, progressive phase replacement, independent
+per-image world transforms, and shared runtimes. See `examples/ndv_dense.py`.
+These capabilities currently require ndv's `lodstone-integration` branch until
+its camera, dispatch, and image-transform APIs are released.
 
 `examples/napari_zebrahub.py` opens one lazy timepoint from the public
 ZSNS001 Zebrahub light-sheet series in 3-D. Its approximately 32 MiB native
@@ -325,6 +329,22 @@ The initial expected layouts are:
 Lodstone deliberately stops before physical GPU allocation. The target owns
 textures, double buffering, shader indirection, and renderer invalidation.
 
+## Viewer compatibility
+
+The first alpha is intended for integration development. It does not make the
+streaming paths available in unmodified stable releases of every viewer.
+
+| Client | Initial support | Required host version | Status |
+| --- | --- | --- | --- |
+| ChimeraX OME-Zarr | 3-D images, channels, one selected timepoint | `chimerax-ome-zarr` PR 22 | Experimental |
+| napari | 2-D/3-D Image and Labels layers | napari PR 34 based on PR 9067 | Experimental |
+| ndv + VisPy | 2-D/3-D dense clipmaps and camera replanning | ndv `lodstone-integration` branch | Reference ndv backend |
+| ndv + PyGFX | Same renderer-neutral data path | ndv `lodstone-integration` branch | Experimental visual parity |
+
+Integrations should pin an exact Lodstone prerelease. Compatibility is only
+claimed for combinations exercised by the integration's native tests and smoke
+tests; adapters remain provisional throughout the 0.1 alpha series.
+
 ## Development
 
 ```bash
@@ -336,3 +356,6 @@ uv run --group dev pyright src
 The test suite is network-independent. Remote opening and reading has also
 been checked against the EBI IDR OME-Zarr v0.4 store used by
 `chimerax-ome-zarr`.
+
+Release maintainers should follow [`RELEASING.md`](RELEASING.md). Changes are
+recorded in [`CHANGELOG.md`](CHANGELOG.md).

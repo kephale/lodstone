@@ -1,5 +1,7 @@
 """Renderer-neutral multiscale chunk planning and streaming."""
 
+from importlib.metadata import version
+
 from .chunks import (
     ChunkGrid,
     chunk_boundaries,
@@ -58,6 +60,8 @@ from .stream import Stream
 from .target import PassTarget, PhaseTarget, ResidencyLease, StagingTarget, Target
 from .virtual import MultiScaleVirtualData, VirtualArrayView, VirtualData
 
+__version__ = version("lodstone")
+
 __all__ = [
     "ChunkEvent",
     "ChunkGrid",
@@ -96,6 +100,7 @@ __all__ = [
     "View",
     "VirtualArrayView",
     "VirtualData",
+    "__version__",
     "anisotropic_extent_for_bytes",
     "available_tile_keys",
     "chunk_boundaries",
