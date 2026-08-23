@@ -11,6 +11,16 @@ Lodstone is currently an alpha. The renderer-neutral core is the compatibility
 boundary for the 0.1 series; viewer adapters are experimental and may change
 between prereleases as their host applications establish public streaming APIs.
 
+## Viewer integrations
+
+| napari | ChimeraX OME-Zarr |
+| --- | --- |
+| [![Lodstone streaming in napari](img/lodstone_napari.png)](img/lodstone_napari.png) | [![Lodstone streaming in ChimeraX OME-Zarr](img/lodstone_chimera_ome_zarr.png)](img/lodstone_chimera_ome_zarr.png) |
+
+| ndv with VisPy | ndv with PyGFX |
+| --- | --- |
+| [![Lodstone streaming in ndv with VisPy](img/lodstone_ndv_vispy.png)](img/lodstone_ndv_vispy.png) | [![Lodstone streaming in ndv with PyGFX](img/lodstone_ndv_pygfx.png)](img/lodstone_ndv_pygfx.png) |
+
 ```text
 Source + View + Target
           │
