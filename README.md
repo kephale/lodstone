@@ -7,6 +7,10 @@ into progressive array `Update`s accepted by a viewer-specific `Target`.
 It is intended to be shared by clients such as ChimeraX, napari, and ndv.
 Lodstone does not create windows, textures, shaders, layers, or viewer models.
 
+Lodstone is currently an alpha. The renderer-neutral core is the compatibility
+boundary for the 0.1 series; viewer adapters are experimental and may change
+between prereleases as their host applications establish public streaming APIs.
+
 ```text
 Source + View + Target
           │
@@ -99,6 +103,22 @@ stream = Stream(
 )
 ```
 
+Viewers with several layers or channels should share a `Runtime`. It owns one
+asynchronous scheduler and a bounded CPU staging pool, while each stream keeps
+its independent request state. Heavy `stage`, `stage_prepare`, and
+`stage_phase` work runs in that pool instead of blocking I/O and cancellation:
+
+```python
+from lodstone import Runtime, Stream
+
+runtime = Runtime(compute_workers=2)
+streams = [
+    Stream(source, target, runtime=runtime, dispatch=run_on_viewer_thread)
+    for source, target in channels
+]
+# Close streams first, then the shared runtime.
+```
+
 ## napari adapter
 
 The optional adapter uses the rendering architecture from napari PR #9067: a
@@ -129,6 +149,32 @@ This currently requires the `lodstone-integration` napari branch based on PR
 `examples/napari_ome_zarr.py` for a two-channel remote example. The core
 package still has no napari or Qt dependency.
 
+## ndv adapter
+
+The ndv adapter presents immutable dense phase snapshots through ndv's common
+`ArrayCanvas` API, so the same target works with its VisPy and pygfx renderers.
+Create an empty `ndv.ArrayViewer`, pass it and a source to `NDVController`, then
+submit renderer-neutral `View` snapshots:
+
+```python
+import ndv
+
+from lodstone.adapters.ndv import NDVController
+
+viewer = ndv.ArrayViewer()
+controller = NDVController(viewer, source)
+controller.update(view)
+viewer.show()
+ndv.run_app()
+controller.close()
+```
+
+The initial adapter supports translated dense 2-D and 3-D windows, hidden-axis
+selections, camera-driven replanning, progressive phase replacement, independent
+per-image world transforms, and shared runtimes. See `examples/ndv_dense.py`.
+These capabilities currently require ndv's `lodstone-integration` branch until
+its camera, dispatch, and image-transform APIs are released.
+
 `examples/napari_zebrahub.py` opens one lazy timepoint from the public
 ZSNS001 Zebrahub light-sheet series in 3-D. Its approximately 32 MiB native
 chunks make it a useful stress test for cancellation, interaction holds, and
@@ -148,6 +194,8 @@ the image's contrast or texture values.
 - **View** — displayed axes, hidden-axis selections, viewport, and camera matrix.
 - **Target** — desired dense/tiled/bricked layout and update delivery.
 - **Planner** — deterministic visible-tile and LOD selection.
+- **PlanCoverage / PlanDelta** — stable coverage identity plus retained,
+  requested, reprioritized, and released work across camera changes.
 - **Stream** — cancellation, priorities, native-chunk reuse, CPU caching,
   batching, progressive delivery, and stale-generation rejection.
 - **Composition** — transform-aware nearest-neighbor backdrop sampling and
@@ -160,6 +208,11 @@ Storage chunks and display tiles are deliberately distinct. A target may ask
 for 32-cubed bricks while the Zarr source stores 16 by 64 by 64 chunks.
 Lodstone reads each overlapping native chunk once and assembles the requested
 display updates from its decoded cache.
+
+Progressive planning starts at the coarsest level by default. Renderer
+integrations can set `Planner(max_initial_voxel_footprint=...)` to choose the
+coarsest initial level whose projected voxels stay within that many screen
+pixels; the normal target level and napari's default behavior are unchanged.
 
 `stream.diagnostics` separates renderer tiles from native storage activity for
 the current or most recent generation. `stream.cache_events` records recent
@@ -208,6 +261,23 @@ call `stream.pause()` and `stream.resume()` without discarding the active pass.
 `bytes_per_second` can pace aggregate source reads when decoding or remote I/O
 would otherwise compete with interaction and rendering.
 
+`prepare` may return a residency lease with dynamic `available_keys` and
+`pending_keys` sets plus `release(keys)`. A lease confirms which target storage
+survives replanning, allowing the stream to retain delivered overlap while it
+keeps loading native chunks shared by the old and new request. Queued work is
+rebuilt in the newest priority order and work outside the new coverage is
+canceled. Legacy targets that return no lease retain conservative pass
+replacement behavior. `stream.delta` exposes the latest `PlanDelta`.
+
+Viewers may attach `InteractionState` to a `View` to describe camera motion
+and angular, translation, and zoom velocity. Existing integrations can omit
+it and retain their current policy.
+
+Targets that need an atomic presentation point between coarse-to-fine stages
+may also implement `phase_complete(view, plan, phase)`. The hook is optional;
+existing targets continue to receive the same prepare, apply, complete, and
+redraw calls.
+
 Dense targets can use `ResidentArrays` to avoid allocating complete pyramid
 levels. It stages one full-ND bounding window per desired level, preserves
 overlapping content when the camera moves, translates absolute updates into
@@ -215,9 +285,9 @@ window-relative writes, and retires coarse/replaced storage on completion.
 The viewer still owns the corresponding grid, texture, or volume objects:
 
 ```python
-from lodstone import Layout, ResidentArrays
+from lodstone import Layout, ResidentArrays, ResidentLease
 
-resident = ResidentArrays(source.pyramid)
+resident = ResidentArrays(source.pyramid, compose=True)
 
 
 def layout(view, pyramid):
@@ -228,11 +298,13 @@ def prepare(view, plan):
     transition = resident.prepare(plan)
     # Create renderer resources for transition.prepared and remove
     # transition.retired resources.
+    desired = plan.desired or plan.wanted
+    return ResidentLease(resident, frozenset(tile.key for tile in desired))
 
 
 def apply(updates):
     for change in resident.apply(updates):
-        # Patch or invalidate the renderer resource for change.window.
+        # Patch or invalidate change.regions in the renderer resource.
         pass
 
 
@@ -240,6 +312,11 @@ def complete(view, plan):
     transition = resident.complete(plan)
     # Present resident.active[plan.target_level] and retire old resources.
 ```
+
+With `compose=True`, coarse updates initialize and repair unloaded native
+chunks in finer pending windows using the pyramid transforms. Directly loaded
+fine chunks are never overwritten. Leaving composition disabled preserves the
+original fill-value and same-level overlap behavior.
 
 The initial expected layouts are:
 
@@ -252,6 +329,22 @@ The initial expected layouts are:
 Lodstone deliberately stops before physical GPU allocation. The target owns
 textures, double buffering, shader indirection, and renderer invalidation.
 
+## Viewer compatibility
+
+The first alpha is intended for integration development. It does not make the
+streaming paths available in unmodified stable releases of every viewer.
+
+| Client | Initial support | Required host version | Status |
+| --- | --- | --- | --- |
+| ChimeraX OME-Zarr | 3-D images, channels, one selected timepoint | `chimerax-ome-zarr` PR 22 | Experimental |
+| napari | 2-D/3-D Image and Labels layers | napari PR 34 based on PR 9067 | Experimental |
+| ndv + VisPy | 2-D/3-D dense clipmaps and camera replanning | ndv `lodstone-integration` branch | Reference ndv backend |
+| ndv + PyGFX | Same renderer-neutral data path | ndv `lodstone-integration` branch | Experimental visual parity |
+
+Integrations should pin an exact Lodstone prerelease. Compatibility is only
+claimed for combinations exercised by the integration's native tests and smoke
+tests; adapters remain provisional throughout the 0.1 alpha series.
+
 ## Development
 
 ```bash
@@ -263,3 +356,6 @@ uv run --group dev pyright src
 The test suite is network-independent. Remote opening and reading has also
 been checked against the EBI IDR OME-Zarr v0.4 store used by
 `chimerax-ome-zarr`.
+
+Release maintainers should follow [`RELEASING.md`](RELEASING.md). Changes are
+recorded in [`CHANGELOG.md`](CHANGELOG.md).

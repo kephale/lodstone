@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
 from collections import OrderedDict, deque
 from collections.abc import Callable, Collection, Sequence
 from concurrent.futures import Future
@@ -17,6 +18,7 @@ from .model import (
     ChunkEvent,
     ChunkState,
     Plan,
+    PlanDelta,
     Region,
     Status,
     StreamDiagnostics,
@@ -26,8 +28,9 @@ from .model import (
     View,
 )
 from .planner import Planner
+from .runtime import Runtime
 from .source import Source
-from .target import Target
+from .target import ResidencyLease, Target
 
 Dispatch = Callable[[Callable[[], None]], None]
 StatusCallback = Callable[[Status], None]
@@ -57,6 +60,7 @@ class Stream:
         inflight: int = 256 << 20,
         batch_size: int = 8,
         bytes_per_second: float | None = None,
+        runtime: Runtime | None = None,
     ) -> None:
         if (
             workers <= 0
@@ -77,20 +81,21 @@ class Stream:
         self.inflight_limit = inflight
         self.batch_size = batch_size
         self.bytes_per_second = bytes_per_second
+        self.runtime = runtime or Runtime()
+        self._owns_runtime = runtime is None
 
         self._state_lock = threading.RLock()
         self._generation = 0
         self._status = Status()
         self._available: set[TileKey] = set()
+        self._lease: Any | None = None
+        self._plan: Plan | None = None
+        self._delta = PlanDelta(frozenset(), (), (), frozenset())
         self._status_callbacks: list[StatusCallback] = []
         self._closed = False
         self._paused = False
 
-        self._loop = asyncio.new_event_loop()
-        self._thread = threading.Thread(
-            target=self._run_loop, name="lodstone-stream", daemon=True
-        )
-        self._thread.start()
+        self._loop = self.runtime.loop
         self._active: Future[Any] | None = None
         self._read_semaphore: asyncio.Semaphore | None = None
         self._resume_event: asyncio.Event | None = None
@@ -116,7 +121,16 @@ class Stream:
     @property
     def available(self) -> frozenset[TileKey]:
         with self._state_lock:
+            if self._lease is not None:
+                return frozenset(self._lease.available_keys)
             return frozenset(self._available)
+
+    @property
+    def delta(self) -> PlanDelta:
+        """Coverage changes applied by the current or most recent request."""
+
+        with self._state_lock:
+            return self._delta
 
     @property
     def diagnostics(self) -> StreamDiagnostics:
@@ -147,16 +161,39 @@ class Stream:
 
         return disconnect
 
-    def update(self, view: View) -> Plan:
-        """Plan and start streaming the newest view, returning its plan."""
-
+    def plan(
+        self,
+        view: View,
+        *,
+        previous_target_level: int | None = None,
+        lod_hysteresis: float = 0.0,
+    ) -> Plan:
+        """Plan a view without changing the active generation."""
         with self._state_lock:
             if self._closed:
                 raise RuntimeError("stream is closed")
-            available = frozenset(self._available)
+            # Lease-aware targets explicitly confirm storage that survives a
+            # replan. Legacy targets retain conservative generation behavior.
+            if self._lease is not None:
+                available = frozenset(self._lease.available_keys)
+            elif self._status.state == "complete":
+                available = frozenset(self._available)
+            else:
+                available = frozenset()
         layout = self.target.layout(view, self.source.pyramid)
-        plan = self.planner.plan(self.source.pyramid, view, layout, available=available)
-        return self._start(view, plan, layout)
+        return self.planner.plan(
+            self.source.pyramid,
+            view,
+            layout,
+            available=available,
+            previous_target_level=previous_target_level,
+            lod_hysteresis=lod_hysteresis,
+        )
+
+    def update(self, view: View) -> Plan:
+        """Plan and start streaming the newest view, returning its plan."""
+
+        return self.submit(view, self.plan(view))
 
     def submit(self, view: View, plan: Plan) -> Plan:
         """Execute an adapter-supplied plan for the newest view.
@@ -180,6 +217,8 @@ class Stream:
                 raise RuntimeError("stream is closed")
             self._generation += 1
             generation = self._generation
+            self._delta = plan.delta(self._plan)
+            self._plan = plan
             available = frozenset(self._available)
             cache_chunks = self._diagnostics.cache_chunks
             cache_bytes = self._diagnostics.cache_bytes
@@ -275,8 +314,10 @@ class Stream:
         if self._active is not None:
             self._active.cancel()
         self._set_status(Status(generation=generation, state="closed"))
-        self._loop.call_soon_threadsafe(self._loop.stop)
-        self._thread.join(timeout=5)
+        if not self._loop.is_closed():
+            self._loop.call_soon_threadsafe(self._cancel_stream_tasks)
+        if self._owns_runtime:
+            self.runtime.close()
 
     def __enter__(self) -> Self:
         return self
@@ -284,34 +325,26 @@ class Stream:
     def __exit__(self, *args: object) -> None:
         self.close()
 
-    def _run_loop(self) -> None:
-        asyncio.set_event_loop(self._loop)
-        self._read_semaphore = asyncio.Semaphore(self.workers)
-        self._resume_event = asyncio.Event()
-        self._rate_lock = asyncio.Lock()
-        if not self._paused:
-            self._resume_event.set()
-        self._loop.run_forever()
-        pending = asyncio.all_tasks(self._loop)
-        for task in pending:
-            task.cancel()
-        if pending:
-            self._loop.run_until_complete(
-                asyncio.gather(*pending, return_exceptions=True)
-            )
-        self._loop.close()
-
     async def _execute(
         self, generation: int, view: View, plan: Plan, layout: Any
     ) -> None:
         completed = 0
         bytes_read = 0
         try:
+            await self._reconcile_chunk_tasks(self._native_chunk_keys(plan.wanted))
             await self._wait_until_resumed()
-            await self._deliver_prepare(generation, view, plan)
-            phases = sorted({tile.phase for tile in plan.wanted})
+            lease = await self._deliver_prepare(generation, view, plan)
+            available = (
+                frozenset(lease.available_keys) if lease is not None else frozenset()
+            )
+            wanted = tuple(tile for tile in plan.wanted if tile.key not in available)
+            desired = plan.desired or plan.wanted
+            # Presentation is a property of the logical plan, not only its
+            # cache misses.  Targets may need to publish an already-resident
+            # phase into newly prepared renderer resources.
+            phases = sorted({tile.phase for tile in desired})
             for phase in phases:
-                phase_tiles = [tile for tile in plan.wanted if tile.phase == phase]
+                phase_tiles = [tile for tile in wanted if tile.phase == phase]
                 for window in self._tile_windows(phase_tiles):
                     await self._wait_until_resumed()
                     if not self._is_current(generation):
@@ -336,13 +369,14 @@ class Stream:
                         Status(
                             generation=generation,
                             state="loading",
-                            wanted=len(plan.wanted),
+                            wanted=len(wanted),
                             resident=len(self.available),
-                            inflight=max(0, len(plan.wanted) - completed),
+                            inflight=max(0, len(wanted) - completed),
                             bytes_read=bytes_read,
-                            progress=completed / len(plan.wanted),
+                            progress=completed / len(wanted),
                         )
                     )
+                await self._deliver_phase_complete(generation, view, plan, phase)
 
             if not self._is_current(generation):
                 return
@@ -355,7 +389,7 @@ class Stream:
                 Status(
                     generation=generation,
                     state="complete",
-                    wanted=len(plan.wanted),
+                    wanted=len(wanted),
                     resident=len(self.available),
                     bytes_read=bytes_read,
                     progress=1.0,
@@ -378,6 +412,21 @@ class Stream:
                         error=error,
                     )
                 )
+
+    async def _reconcile_chunk_tasks(
+        self, desired: frozenset[tuple[int, tuple[int, ...]]]
+    ) -> None:
+        """Keep loading overlap and rebuild queued work in newest priority order."""
+
+        for key, task in tuple(self._chunk_tasks.items()):
+            state = self._chunk_states.get(key, ChunkState.NEW)
+            if key not in desired or state is ChunkState.QUEUED:
+                if self._chunk_tasks.get(key) is task:
+                    self._chunk_tasks.pop(key, None)
+                task.cancel()
+        # Let cancellation release semaphore waiters before requesting the
+        # newest ordered tile windows.
+        await asyncio.sleep(0)
 
     def _tile_windows(self, tiles: Sequence[Tile]) -> list[list[Tile]]:
         """Batch tiles without exceeding count or decoded-byte backpressure."""
@@ -511,6 +560,13 @@ class Stream:
         if self._chunk_tasks.get(key) is task:
             self._chunk_tasks.pop(key, None)
 
+    def _cancel_stream_tasks(self) -> None:
+        """Cancel reads owned by this stream without stopping a shared runtime."""
+
+        for task in tuple(self._chunk_tasks.values()):
+            task.cancel()
+        self._chunk_tasks.clear()
+
     async def _fetch_chunk(
         self,
         level_index: int,
@@ -523,10 +579,8 @@ class Stream:
         )
         start = tuple(value for value, _stop in bounds)
         stop = tuple(value for _start, value in bounds)
-        # ``update()`` may be called immediately after construction, before the
-        # runtime thread has entered ``run_forever``.  Initialise lazily on the
-        # runtime loop as well as eagerly in ``_run_loop`` to make that race
-        # harmless.
+        # Streams may share a runtime, so per-stream concurrency primitives are
+        # initialized lazily on that runtime's event loop.
         if self._read_semaphore is None:
             self._read_semaphore = asyncio.Semaphore(self.workers)
         key = (level_index, chunk_index)
@@ -620,7 +674,7 @@ class Stream:
                 ChunkEvent(generation, key, previous, current, reason)
             )
 
-    def _increment_diagnostics(self, generation: int, **changes: int) -> None:
+    def _increment_diagnostics(self, generation: int, **changes: float) -> None:
         with self._state_lock:
             if self._diagnostics.generation != generation:
                 return
@@ -648,7 +702,15 @@ class Stream:
         # stream thread so the dispatched host/UI callback only submits the
         # prepared rendering update.
         stage = getattr(self.target, "stage", None)
-        prepared = stage(updates) if stage is not None else updates
+        stage_started = time.perf_counter()
+        prepared = (
+            await self.runtime.run_cpu(stage, updates) if stage is not None else updates
+        )
+        if stage is not None:
+            self._increment_diagnostics(
+                generation,
+                update_stage_seconds=time.perf_counter() - stage_started,
+            )
 
         def apply() -> None:
             if not self._is_current(generation):
@@ -660,16 +722,40 @@ class Stream:
 
         await self._run_on_target(apply)
 
-    async def _deliver_prepare(self, generation: int, view: View, plan: Plan) -> None:
+    async def _deliver_prepare(
+        self, generation: int, view: View, plan: Plan
+    ) -> Any | None:
         prepare = getattr(self.target, "prepare", None)
         if prepare is None:
-            return
+            return None
+
+        stage_prepare = getattr(self.target, "stage_prepare", None)
+        prepared = None
+        if stage_prepare is not None and self._is_current(generation):
+            stage_started = time.perf_counter()
+            prepared = await self.runtime.run_cpu(stage_prepare, view, plan)
+            self._increment_diagnostics(
+                generation,
+                prepare_stage_seconds=time.perf_counter() - stage_started,
+            )
+
+        result: Any | None = None
 
         def run() -> None:
+            nonlocal result
             if self._is_current(generation):
-                prepare(view, plan)
+                if stage_prepare is None:
+                    result = prepare(view, plan)
+                else:
+                    result = prepare(view, plan, prepared)
 
         await self._run_on_target(run)
+        lease = result if isinstance(result, ResidencyLease) else None
+        if lease is not None and self._is_current(generation):
+            with self._state_lock:
+                self._lease = lease
+                self._available = set(lease.available_keys)
+        return lease
 
     async def _deliver_complete(self, generation: int, view: View, plan: Plan) -> None:
         complete = getattr(self.target, "complete", None)
@@ -682,13 +768,42 @@ class Stream:
 
         await self._run_on_target(run)
 
+    async def _deliver_phase_complete(
+        self, generation: int, view: View, plan: Plan, phase: int
+    ) -> None:
+        phase_complete = getattr(self.target, "phase_complete", None)
+        if phase_complete is None:
+            return
+
+        stage_phase = getattr(self.target, "stage_phase", None)
+        prepared = None
+        if stage_phase is not None and self._is_current(generation):
+            stage_started = time.perf_counter()
+            prepared = await self.runtime.run_cpu(stage_phase, view, plan, phase)
+            self._increment_diagnostics(
+                generation,
+                phase_stage_seconds=time.perf_counter() - stage_started,
+            )
+
+        def run() -> None:
+            if self._is_current(generation):
+                if stage_phase is None:
+                    phase_complete(view, plan, phase)
+                else:
+                    phase_complete(view, plan, phase, prepared)
+
+        await self._run_on_target(run)
+
     async def _deliver_discard(
         self, generation: int, keys: Collection[TileKey]
     ) -> None:
         def discard() -> None:
             if not self._is_current(generation):
                 return
-            self.target.discard(keys)
+            if self._lease is None:
+                self.target.discard(keys)
+            else:
+                self._lease.release(keys)
             with self._state_lock:
                 self._available.difference_update(keys)
 

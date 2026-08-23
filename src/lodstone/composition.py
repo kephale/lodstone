@@ -86,7 +86,8 @@ def fill_unloaded_chunks(
         return ()
 
     boundaries = [np.concatenate(([0], np.cumsum(axis))) for axis in chunk_grid]
-    loaded_set = set(loaded)
+    loaded_regions = tuple(loaded)
+    loaded_set = set(loaded_regions)
     per_axis = []
     for axis, bounds in enumerate(boundaries):
         starts, stops = bounds[:-1], bounds[1:]
@@ -102,7 +103,9 @@ def fill_unloaded_chunks(
             tuple(start for start, _stop in bounds),
             tuple(stop for _start, stop in bounds),
         )
-        if chunk in loaded_set:
+        if chunk in loaded_set or any(
+            region.intersection(chunk) == chunk for region in loaded_regions
+        ):
             continue
         write = chunk.intersection(overlap)
         if write is None:

@@ -3,7 +3,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+import lodstone
 from lodstone import Level, Pyramid, Region, View, identity_transform
+
+
+def test_package_exposes_version() -> None:
+    assert lodstone.__version__
 
 
 def test_region_intersection_and_slices() -> None:

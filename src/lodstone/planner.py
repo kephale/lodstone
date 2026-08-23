@@ -20,11 +20,30 @@ class Planner:
         *,
         lod_bias: float = 1.0,
         progressive: bool = True,
+        max_intermediate_levels: int | None = None,
+        max_initial_voxel_footprint: float | None = None,
     ) -> None:
         if lod_bias <= 0:
             raise ValueError("lod_bias must be positive")
+        if max_intermediate_levels is not None and (
+            not isinstance(max_intermediate_levels, int)
+            or isinstance(max_intermediate_levels, bool)
+            or max_intermediate_levels < 0
+        ):
+            raise ValueError(
+                "max_intermediate_levels must be a nonnegative integer or None"
+            )
+        if max_initial_voxel_footprint is not None and (
+            not math.isfinite(max_initial_voxel_footprint)
+            or max_initial_voxel_footprint <= 0
+        ):
+            raise ValueError(
+                "max_initial_voxel_footprint must be positive and finite or None"
+            )
         self.lod_bias = float(lod_bias)
         self.progressive = bool(progressive)
+        self.max_intermediate_levels = max_intermediate_levels
+        self.max_initial_voxel_footprint = max_initial_voxel_footprint
 
     def plan(
         self,
@@ -33,29 +52,72 @@ class Planner:
         layout: Layout,
         *,
         available: frozenset[TileKey] = frozenset(),
+        previous_target_level: int | None = None,
+        lod_hysteresis: float = 0.0,
     ) -> Plan:
         """Return an ordered, cache-aware plan for ``view``."""
 
         self._validate(pyramid, view, layout)
-        target_level = self._select_level(pyramid, view)
+        if not 0 <= lod_hysteresis < 1:
+            raise ValueError("lod_hysteresis must be in [0, 1)")
+        if previous_target_level is not None and not 0 <= previous_target_level < len(
+            pyramid.levels
+        ):
+            raise ValueError("previous_target_level is outside the pyramid")
+        target_level = self._select_level(
+            pyramid,
+            view,
+            previous_target_level=previous_target_level,
+            lod_hysteresis=lod_hysteresis,
+        )
+        context_level = len(pyramid.levels) - 1
+        target_depth_weight = (
+            None
+            if layout.mixed_lod and target_level == context_level
+            else layout.focus_depth_weight
+        )
         while target_level < len(pyramid.levels) - 1:
             target_tiles = self._tiles_for_level(
-                pyramid, view, layout, target_level, phase=0
+                pyramid,
+                view,
+                layout,
+                target_level,
+                phase=0,
+                focus_depth_weight=target_depth_weight,
             )
-            if _tiles_nbytes(target_tiles, pyramid) <= layout.memory_limit:
+            if layout.memory_policy == "crop":
+                if target_tiles:
+                    break
+            elif _tiles_nbytes(target_tiles, pyramid) <= layout.memory_limit:
                 break
             target_level += 1
-        levels = [target_level]
-        if self.progressive:
-            levels = list(range(len(pyramid.levels) - 1, target_level - 1, -1))
+        target_depth_weight = (
+            None
+            if layout.mixed_lod and target_level == context_level
+            else layout.focus_depth_weight
+        )
+        levels = self._levels(pyramid, view, target_level)
+        if layout.mixed_lod and context_level not in levels:
+            levels.insert(0, context_level)
 
         wanted: list[Tile] = []
         desired: list[Tile] = []
         retain: set[TileKey] = set()
         for phase, level_index in enumerate(levels):
-            tiles = self._tiles_for_level(pyramid, view, layout, level_index, phase)
+            tiles = self._tiles_for_level(
+                pyramid,
+                view,
+                layout,
+                level_index,
+                phase,
+                focus_depth_weight=(
+                    target_depth_weight if level_index == target_level else None
+                ),
+            )
             desired.extend(tiles)
-            if level_index == target_level:
+            if level_index == target_level or (
+                layout.mixed_lod and level_index == context_level
+            ):
                 retain.update(tile.key for tile in tiles)
             wanted.extend(tile for tile in tiles if tile.key not in available)
 
@@ -92,9 +154,10 @@ class Planner:
         if target_region.ndim != pyramid.ndim:
             raise ValueError("target region dimensionality does not match pyramid")
 
-        levels = [target_level]
-        if self.progressive:
-            levels = list(range(len(pyramid.levels) - 1, target_level - 1, -1))
+        levels = self._levels(pyramid, view, target_level)
+        context_level = len(pyramid.levels) - 1
+        if layout.mixed_lod and context_level not in levels:
+            levels.insert(0, context_level)
         desired: list[Tile] = []
         wanted: list[Tile] = []
         retain: set[TileKey] = set()
@@ -123,7 +186,9 @@ class Planner:
                 phase,
             )
             desired.extend(tiles)
-            if level_index == target_level:
+            if level_index == target_level or (
+                layout.mixed_lod and level_index == context_level
+            ):
                 retain.update(tile.key for tile in tiles)
             if fetch_intermediate or level_index == target_level:
                 wanted.extend(tile for tile in tiles if tile.key not in available)
@@ -196,8 +261,32 @@ class Planner:
                 "block_shape must match displayed or complete data dimensionality"
             )
 
-    def _select_level(self, pyramid: Pyramid, view: View) -> int:
-        threshold = self.lod_bias
+    def _select_level(
+        self,
+        pyramid: Pyramid,
+        view: View,
+        *,
+        previous_target_level: int | None = None,
+        lod_hysteresis: float = 0.0,
+    ) -> int:
+        selected = self._select_level_at_threshold(pyramid, view, self.lod_bias)
+        if (
+            previous_target_level is None
+            or selected == previous_target_level
+            or lod_hysteresis == 0
+        ):
+            return selected
+        factor = (
+            1 + lod_hysteresis
+            if selected < previous_target_level
+            else 1 - lod_hysteresis
+        )
+        return self._select_level_at_threshold(pyramid, view, self.lod_bias * factor)
+
+    @staticmethod
+    def _select_level_at_threshold(
+        pyramid: Pyramid, view: View, threshold: float
+    ) -> int:
         selected = 0
         for index, level in enumerate(pyramid.levels):
             footprint = _voxel_footprint_px(level.voxel_to_world, level.shape, view)
@@ -207,6 +296,27 @@ class Planner:
                 break
         return selected
 
+    def _levels(self, pyramid: Pyramid, view: View, target_level: int) -> list[int]:
+        if not self.progressive:
+            return [target_level]
+        coarsest = len(pyramid.levels) - 1
+        footprint_limit = self.max_initial_voxel_footprint
+        if footprint_limit is not None:
+            coarsest = target_level
+            for index in range(target_level + 1, len(pyramid.levels)):
+                footprint = _voxel_footprint_px(
+                    pyramid.levels[index].voxel_to_world,
+                    pyramid.levels[index].shape,
+                    view,
+                )
+                if footprint <= footprint_limit:
+                    coarsest = index
+        levels = list(range(coarsest, target_level - 1, -1))
+        limit = self.max_intermediate_levels
+        if limit is None or len(levels) <= limit + 2:
+            return levels
+        return [coarsest, *levels[-(limit + 1) :]]
+
     def _tiles_for_level(
         self,
         pyramid: Pyramid,
@@ -214,6 +324,8 @@ class Planner:
         layout: Layout,
         level_index: int,
         phase: int,
+        *,
+        focus_depth_weight: float | None = None,
     ) -> list[Tile]:
         level = pyramid.levels[level_index]
         grids = _display_grid(layout, level, view.displayed_axes)
@@ -242,6 +354,14 @@ class Planner:
             key = TileKey(level_index, tuple(grid_index), selection)
             result.append(Tile(key, region, projected.priority, phase))
 
+        if layout.memory_policy == "crop":
+            return _crop_dense_tiles(
+                result,
+                level,
+                layout.memory_limit,
+                view=view,
+                focus_depth_weight=focus_depth_weight,
+            )
         return result
 
 
@@ -453,6 +573,57 @@ def _tiles_in_region(
     return tiles
 
 
+def _crop_dense_tiles(
+    tiles: Sequence[Tile],
+    level: Level,
+    memory_limit: int,
+    *,
+    view: View,
+    focus_depth_weight: float | None,
+) -> list[Tile]:
+    """Select a priority-ordered focus window whose dense bounds fit memory."""
+
+    selected: list[Tile] = []
+    start: tuple[int, ...] | None = None
+    stop: tuple[int, ...] | None = None
+    if focus_depth_weight is None or len(view.displayed_axes) != 3:
+        priority = lambda item: (item.priority, item.key.grid_index)
+    else:
+
+        def priority(item: Tile) -> tuple[float, tuple[int, ...]]:
+            projection = _project_region(level.voxel_to_world, item.region, view)
+            # Work in perceptual NDC units.  Euclidean screen distance grows
+            # linearly from the visual center, while depth is normalized from
+            # near=0 to far=1.  A large depth weight therefore fills the canvas
+            # on near planes first; a small nonzero weight builds a central
+            # column front-to-back without falling back to data-axis ordering.
+            screen_distance = math.sqrt(max(0.0, projection.center_distance))
+            normalized_depth = min(1.0, max(0.0, (projection.depth + 1.0) / 2.0))
+            score = screen_distance + focus_depth_weight * normalized_depth
+            return score, item.key.grid_index
+
+    for tile in sorted(tiles, key=priority):
+        candidate_start = (
+            tile.region.start
+            if start is None
+            else tuple(min(a, b) for a, b in zip(start, tile.region.start, strict=True))
+        )
+        candidate_stop = (
+            tile.region.stop
+            if stop is None
+            else tuple(max(a, b) for a, b in zip(stop, tile.region.stop, strict=True))
+        )
+        size = math.prod(
+            upper - lower
+            for lower, upper in zip(candidate_start, candidate_stop, strict=True)
+        )
+        if size * level.dtype.itemsize > memory_limit:
+            continue
+        selected.append(tile)
+        start, stop = candidate_start, candidate_stop
+    return selected
+
+
 def _local_world(
     matrix: np.ndarray, data_points: np.ndarray, displayed_axes: tuple[int, ...]
 ) -> np.ndarray:
@@ -496,11 +667,20 @@ def _voxel_footprint_px(
 
 
 class _Projection:
-    __slots__ = ("priority", "visible")
+    __slots__ = ("center_distance", "depth", "priority", "visible")
 
-    def __init__(self, visible: bool, priority: float) -> None:
+    def __init__(
+        self,
+        visible: bool,
+        priority: float,
+        *,
+        center_distance: float = math.inf,
+        depth: float = math.inf,
+    ) -> None:
         self.visible = visible
         self.priority = priority
+        self.center_distance = center_distance
+        self.depth = depth
 
 
 def _project_region(matrix: np.ndarray, region: Region, view: View) -> _Projection:
@@ -532,5 +712,11 @@ def _project_region(matrix: np.ndarray, region: Region, view: View) -> _Projecti
         depth = float(np.min(clip[:, 2]))
         priority = depth * 1_000_000.0 + center_distance
     else:
+        depth = 0.0
         priority = center_distance
-    return _Projection(visible, priority)
+    return _Projection(
+        visible,
+        priority,
+        center_distance=center_distance,
+        depth=depth,
+    )

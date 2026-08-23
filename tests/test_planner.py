@@ -1,16 +1,41 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
+import pytest
 
 from lodstone import (
     Layout,
+    Plan,
     Planner,
     Region,
+    Tile,
+    TileKey,
     available_tile_keys,
     merge_plans,
     plan_from_slices,
 )
 from lodstone.sources import ArrayPyramidSource
+
+
+def test_plan_delta_retains_coverage_and_reports_priority_changes() -> None:
+    key0 = TileKey(0, (0, 0), ())
+    key1 = TileKey(0, (0, 1), ())
+    key2 = TileKey(0, (0, 2), ())
+    tile0 = Tile(key0, Region((0, 0), (4, 4)), 1.0)
+    tile1 = Tile(key1, Region((0, 4), (4, 8)), 2.0)
+    first = Plan((tile0, tile1), frozenset({key0, key1}), 0, (tile0, tile1))
+    moved0 = replace(tile0, priority=-1.0)
+    tile2 = Tile(key2, Region((0, 8), (4, 12)), 3.0)
+    second = Plan((moved0, tile2), frozenset({key0, key2}), 0, (moved0, tile2))
+
+    delta = second.delta(first)
+
+    assert delta.retained == frozenset({key0})
+    assert delta.requested == (tile2,)
+    assert delta.reprioritized == (key0,)
+    assert delta.released == frozenset({key1})
 
 
 def _pyramid() -> ArrayPyramidSource:
@@ -64,6 +89,114 @@ def test_progressive_plan_puts_coarse_coverage_first(ortho_view) -> None:
     assert {tile.level for tile in plan.desired} == {0, 1, 2}
 
 
+def test_progressive_plan_can_skip_intermediate_levels(ortho_view) -> None:
+    source = _pyramid()
+    view = ortho_view((256, 256), viewport=(512, 512))
+    plan = Planner(progressive=True, max_intermediate_levels=0).plan(
+        source.pyramid, view, Layout(block_shape=(32, 32))
+    )
+
+    assert [tile.level for tile in plan.wanted] == sorted(
+        (tile.level for tile in plan.wanted), reverse=True
+    )
+    assert {tile.level for tile in plan.desired} == {0, 2}
+
+
+def test_progressive_plan_can_adapt_initial_level_to_voxel_footprint(
+    ortho_view,
+) -> None:
+    source = _pyramid()
+    view = ortho_view((256, 256), viewport=(512, 512))
+    plan = Planner(
+        progressive=True,
+        max_intermediate_levels=0,
+        max_initial_voxel_footprint=4.1,
+    ).plan(source.pyramid, view, Layout(block_shape=(32, 32)))
+
+    assert {tile.level for tile in plan.desired} == {0, 1}
+    assert plan.desired[0].level == 1
+
+
+def test_progressive_initial_level_remains_coarsest_by_default(ortho_view) -> None:
+    source = _pyramid()
+    view = ortho_view((256, 256), viewport=(512, 512))
+    plan = Planner(progressive=True, max_intermediate_levels=0).plan(
+        source.pyramid, view, Layout(block_shape=(32, 32))
+    )
+
+    assert {tile.level for tile in plan.desired} == {0, 2}
+
+
+def test_mixed_lod_retains_coarsest_context_with_target(ortho_view) -> None:
+    source = _pyramid()
+    view = ortho_view((256, 256), viewport=(512, 512))
+    plan = Planner(
+        progressive=True,
+        max_intermediate_levels=0,
+        max_initial_voxel_footprint=1.1,
+    ).plan(
+        source.pyramid,
+        view,
+        Layout(block_shape=(32, 32), mixed_lod=True),
+    )
+
+    assert plan.target_level == 0
+    assert {tile.level for tile in plan.desired} == {0, 2}
+    assert {key.level for key in plan.retain} == {0, 2}
+
+
+@pytest.mark.parametrize("value", [0, -1, float("inf"), float("nan")])
+def test_progressive_initial_voxel_footprint_must_be_positive_and_finite(value) -> None:
+    with pytest.raises(ValueError, match="max_initial_voxel_footprint"):
+        Planner(max_initial_voxel_footprint=value)
+
+
+def test_lod_hysteresis_resists_small_level_boundary_crossings(ortho_view) -> None:
+    source = _pyramid()
+    layout = Layout(block_shape=(32, 32))
+    slightly_inside_fine = ortho_view((256, 256), viewport=(512, 512), extent_scale=3.9)
+    slightly_inside_coarse = ortho_view(
+        (256, 256), viewport=(512, 512), extent_scale=4.1
+    )
+
+    assert (
+        Planner(progressive=False)
+        .plan(source.pyramid, slightly_inside_fine, layout)
+        .target_level
+        == 0
+    )
+    assert (
+        Planner(progressive=False)
+        .plan(
+            source.pyramid,
+            slightly_inside_fine,
+            layout,
+            previous_target_level=1,
+            lod_hysteresis=0.2,
+        )
+        .target_level
+        == 1
+    )
+    assert (
+        Planner(progressive=False)
+        .plan(source.pyramid, slightly_inside_coarse, layout)
+        .target_level
+        == 1
+    )
+    assert (
+        Planner(progressive=False)
+        .plan(
+            source.pyramid,
+            slightly_inside_coarse,
+            layout,
+            previous_target_level=0,
+            lod_hysteresis=0.2,
+        )
+        .target_level
+        == 0
+    )
+
+
 def test_gpu_budget_can_select_a_coarser_level(ortho_view) -> None:
     source = _pyramid()
     view = ortho_view((256, 256), viewport=(512, 512))
@@ -73,6 +206,114 @@ def test_gpu_budget_can_select_a_coarser_level(ortho_view) -> None:
         Layout(block_shape=(32, 32), memory_limit=128 * 128 * 2),
     )
     assert plan.target_level == 1
+
+
+def test_dense_crop_budget_preserves_camera_selected_level(ortho_view) -> None:
+    source = _pyramid()
+    view = ortho_view((256, 256), viewport=(512, 512))
+    memory_limit = 128 * 128 * 2
+    plan = Planner(progressive=False).plan(
+        source.pyramid,
+        view,
+        Layout(
+            block_shape=(32, 32),
+            memory_limit=memory_limit,
+            memory_policy="crop",
+        ),
+    )
+
+    assert plan.target_level == 0
+    start = tuple(
+        min(tile.region.start[axis] for tile in plan.desired) for axis in range(2)
+    )
+    stop = tuple(
+        max(tile.region.stop[axis] for tile in plan.desired) for axis in range(2)
+    )
+    assert np.prod(np.subtract(stop, start)) * 2 <= memory_limit
+
+
+def test_dense_crop_can_balance_focus_depth_against_screen_center(ortho_view) -> None:
+    shape = (64, 64, 64)
+    source = ArrayPyramidSource(
+        [np.zeros(shape, dtype=np.uint8)],
+        axes=("z", "y", "x"),
+        chunks=[(16, 16, 16)],
+    )
+    view = ortho_view(shape, viewport=(256, 256))
+    planner = Planner(progressive=False)
+    common = {
+        "block_shape": (16, 16, 16),
+        "memory_limit": 8 * 16**3,
+        "memory_policy": "crop",
+    }
+
+    slab = planner.plan(source.pyramid, view, Layout(**common))
+    volume = planner.plan(
+        source.pyramid,
+        view,
+        Layout(**common, focus_depth_weight=0.5),
+    )
+
+    def extent(plan, axis):
+        return max(tile.region.stop[axis] for tile in plan.desired) - min(
+            tile.region.start[axis] for tile in plan.desired
+        )
+
+    # This camera maps data axis 2 to clip depth. The balanced focus spends
+    # the same byte budget on two depth layers instead of one front slab.
+    assert extent(slab, 2) == 16
+    assert extent(volume, 2) == 32
+    assert sum(tile.region.size for tile in slab.desired) == sum(
+        tile.region.size for tile in volume.desired
+    )
+
+
+def test_dense_crop_tunes_canvas_coverage_against_depth_reach(ortho_view) -> None:
+    shape = (64, 64, 64)
+    source = ArrayPyramidSource(
+        [np.zeros(shape, dtype=np.uint8)],
+        axes=("z", "y", "x"),
+        chunks=[(16, 16, 16)],
+    )
+    view = ortho_view(shape, viewport=(256, 256))
+    planner = Planner(progressive=False)
+    common = {
+        "block_shape": (16, 16, 16),
+        "memory_limit": 8 * 16**3,
+        "memory_policy": "crop",
+    }
+
+    canvas = planner.plan(
+        source.pyramid,
+        view,
+        Layout(**common, focus_depth_weight=8.0),
+    )
+    depth = planner.plan(
+        source.pyramid,
+        view,
+        Layout(**common, focus_depth_weight=0.5),
+    )
+
+    def extents(plan):
+        return tuple(
+            max(tile.region.stop[axis] for tile in plan.desired)
+            - min(tile.region.start[axis] for tile in plan.desired)
+            for axis in range(3)
+        )
+
+    canvas_extents = extents(canvas)
+    depth_extents = extents(depth)
+    # This camera maps axis 2 to depth. The canvas-heavy policy spends more of
+    # the same dense budget in axes 0/1; the depth-heavy policy reaches farther
+    # along axis 2 around the screen center.
+    assert canvas_extents[0] * canvas_extents[1] > (depth_extents[0] * depth_extents[1])
+    assert canvas_extents[2] < depth_extents[2]
+
+
+@pytest.mark.parametrize("value", [-1, float("inf"), float("nan")])
+def test_focus_depth_weight_must_be_finite_and_nonnegative(value) -> None:
+    with pytest.raises(ValueError, match="focus_depth_weight"):
+        Layout(focus_depth_weight=value)
 
 
 def test_available_tiles_are_retained_but_not_requested(ortho_view) -> None:
@@ -90,6 +331,55 @@ def test_available_tiles_are_retained_but_not_requested(ortho_view) -> None:
     assert available <= updated.retain
     assert available.isdisjoint(tile.key for tile in updated.wanted)
     assert available <= {tile.key for tile in updated.desired}
+
+
+def test_plan_coverage_ignores_tile_order_priority_and_phase(ortho_view) -> None:
+    source = _pyramid()
+    view = ortho_view((256, 256), viewport=(512, 512))
+    plan = Planner(progressive=True).plan(
+        source.pyramid, view, Layout(block_shape=(32, 32))
+    )
+    reordered = replace(
+        plan,
+        desired=tuple(
+            replace(tile, priority=-tile.priority, phase=tile.phase + 10)
+            for tile in reversed(plan.desired)
+        ),
+    )
+
+    assert reordered.coverage == plan.coverage
+
+
+def test_plan_coverage_detects_regions_retention_and_hidden_selection(
+    ortho_view,
+) -> None:
+    source = _pyramid()
+    view = ortho_view((256, 256), viewport=(512, 512))
+    plan = Planner(progressive=False).plan(
+        source.pyramid, view, Layout(block_shape=(32, 32))
+    )
+    tile = plan.desired[0]
+    shifted_region = Region(
+        (tile.region.start[0] + 1, *tile.region.start[1:]),
+        tile.region.stop,
+    )
+    changed_region = replace(
+        plan,
+        desired=(replace(tile, region=shifted_region), *plan.desired[1:]),
+    )
+    changed_retention = replace(plan, retain=frozenset())
+    selected_key = TileKey(tile.level, tile.key.grid_index, (4, -1))
+    changed_selection = replace(
+        plan,
+        desired=(
+            Tile(selected_key, tile.region, tile.priority, tile.phase),
+            *plan.desired[1:],
+        ),
+    )
+
+    assert changed_region.coverage != plan.coverage
+    assert changed_retention.coverage != plan.coverage
+    assert changed_selection.coverage != plan.coverage
 
 
 def test_3d_tiles_are_prioritized_front_to_back(ortho_view) -> None:

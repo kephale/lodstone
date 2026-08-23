@@ -124,31 +124,31 @@ def main() -> None:
             vector_style="line",
         )
     viewer.dims.ndisplay = arguments.ndisplay
-    viewer.reset_view()
-    if any(
-        value is not None
-        for value in (
-            arguments.camera_center,
-            arguments.camera_angles,
-            arguments.zoom,
-        )
-    ):
-        from qtpy.QtCore import QTimer
+    from qtpy.QtCore import QTimer
 
-        def restore_camera() -> None:
-            # Let the initial volume texture and GL objects be created before
-            # the saved pose triggers a new progressive-loading pass.
-            if arguments.camera_center is not None:
-                viewer.camera.center = tuple(arguments.camera_center)
-            if arguments.camera_angles is not None:
-                viewer.camera.angles = tuple(arguments.camera_angles)
-            if arguments.zoom is not None:
-                viewer.camera.zoom = arguments.zoom
+    def initialize_camera() -> None:
+        # Progressive loading enables asynchronous slicing.  reset_view()
+        # before the Qt event loop has realized the initial 3-D slice uses
+        # raw data extents for some axes and transformed world extents for
+        # others, centering fine clipmap pages far outside the visible data.
+        # Initialize from the realized layer extent, then apply any requested
+        # reproducible pose.
+        viewer.reset_view()
+        if arguments.camera_center is None:
+            world_extent = np.asarray(controller.layer.extent.world, dtype=float)
+            viewer.camera.center = tuple(
+                np.mean(world_extent, axis=0)[-arguments.ndisplay :]
+            )
+        else:
+            viewer.camera.center = tuple(arguments.camera_center)
+        if arguments.camera_angles is not None:
+            viewer.camera.angles = tuple(arguments.camera_angles)
+        if arguments.zoom is not None:
+            viewer.camera.zoom = arguments.zoom
 
-        QTimer.singleShot(1000, restore_camera)
+    QTimer.singleShot(250, initialize_camera)
 
     if arguments.screenshot:
-        from qtpy.QtCore import QTimer
 
         def save() -> None:
             viewer.screenshot(arguments.screenshot, canvas_only=True)

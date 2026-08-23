@@ -154,6 +154,25 @@ class Pyramid:
 
 
 @dataclass(frozen=True, slots=True)
+class InteractionState:
+    """Optional motion metadata supplied by an interactive viewer."""
+
+    moving: bool = False
+    angular_velocity: float = 0.0
+    translation_velocity: float = 0.0
+    zoom_velocity: float = 0.0
+
+    def __post_init__(self) -> None:
+        velocities = (
+            self.angular_velocity,
+            self.translation_velocity,
+            self.zoom_velocity,
+        )
+        if any(not np.isfinite(value) for value in velocities):
+            raise ValueError("interaction velocities must be finite")
+
+
+@dataclass(frozen=True, slots=True)
 class View:
     """A host-neutral snapshot of a 2-D or 3-D viewer camera and selection.
 
@@ -167,6 +186,7 @@ class View:
     viewport: tuple[int, int]
     world_to_clip: npt.NDArray[np.float64]
     eye: tuple[float, float, float] | None = None
+    interaction: InteractionState | None = None
 
     def __post_init__(self) -> None:
         if len(self.displayed_axes) not in (2, 3):
@@ -201,6 +221,8 @@ class Layout:
     memory_limit: int = 1 << 30
     squeeze_hidden: bool = True
     max_axis_extent: int | None = None
+    memory_policy: Literal["coarsen", "crop"] = "coarsen"
+    focus_depth_weight: float | None = None
 
     def __post_init__(self) -> None:
         if self.block_shape is not None and any(
@@ -211,6 +233,12 @@ class Layout:
             raise ValueError("memory_limit must be positive")
         if self.max_axis_extent is not None and self.max_axis_extent <= 0:
             raise ValueError("max_axis_extent must be positive")
+        if self.memory_policy not in {"coarsen", "crop"}:
+            raise ValueError("memory_policy must be 'coarsen' or 'crop'")
+        if self.focus_depth_weight is not None and (
+            not np.isfinite(self.focus_depth_weight) or self.focus_depth_weight < 0
+        ):
+            raise ValueError("focus_depth_weight must be finite and nonnegative")
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,6 +265,31 @@ class Tile:
 
 
 @dataclass(frozen=True, slots=True)
+class PlanCoverage:
+    """Order-independent identity of the data covered by a plan.
+
+    Tile priority and progressive phase are intentionally excluded.  Hidden-axis
+    selections are included explicitly as well as through :class:`TileKey`, so
+    integrations can inspect them without decoding tile identities.
+    """
+
+    target_level: int
+    tile_regions: frozenset[tuple[TileKey, Region]]
+    retained_keys: frozenset[TileKey]
+    hidden_axis_selections: frozenset[tuple[int, ...]]
+
+
+@dataclass(frozen=True, slots=True)
+class PlanDelta:
+    """Stable coverage changes between two successive plans."""
+
+    retained: frozenset[TileKey]
+    requested: tuple[Tile, ...]
+    reprioritized: tuple[TileKey, ...]
+    released: frozenset[TileKey]
+
+
+@dataclass(frozen=True, slots=True)
 class Plan:
     """A complete desired tile set and the reads needed to reach it.
 
@@ -250,6 +303,55 @@ class Plan:
     retain: frozenset[TileKey]
     target_level: int
     desired: tuple[Tile, ...] = ()
+
+    @property
+    def coverage(self) -> PlanCoverage:
+        """Return the requested coverage, ignoring delivery order and priority."""
+
+        tiles = self.desired or self.wanted
+        keys = (*[tile.key for tile in tiles], *self.retain)
+        return PlanCoverage(
+            target_level=self.target_level,
+            tile_regions=frozenset((tile.key, tile.region) for tile in tiles),
+            retained_keys=self.retain,
+            hidden_axis_selections=frozenset(key.selection for key in keys),
+        )
+
+    def delta(self, previous: Plan | None) -> PlanDelta:
+        """Compare stable coverage while preserving current request order."""
+
+        current_tiles = self.desired or self.wanted
+        current = {tile.key: tile for tile in current_tiles}
+        if previous is None:
+            return PlanDelta(
+                retained=frozenset(),
+                requested=tuple(self.wanted),
+                reprioritized=(),
+                released=frozenset(),
+            )
+        previous_tiles = previous.desired or previous.wanted
+        old = {tile.key: tile for tile in previous_tiles}
+        retained = frozenset(
+            key
+            for key, tile in current.items()
+            if key in old and old[key].region == tile.region
+        )
+        requested = tuple(tile for tile in self.wanted if tile.key not in retained)
+        reprioritized = tuple(
+            tile.key
+            for tile in current_tiles
+            if tile.key in retained
+            and (
+                old[tile.key].priority != tile.priority
+                or old[tile.key].phase != tile.phase
+            )
+        )
+        released = frozenset(
+            key
+            for key, tile in old.items()
+            if key not in retained or key not in self.retain
+        )
+        return PlanDelta(retained, requested, reprioritized, released)
 
 
 @dataclass(frozen=True, slots=True)
@@ -316,6 +418,9 @@ class StreamDiagnostics:
     evictions: int = 0
     cache_chunks: int = 0
     cache_bytes: int = 0
+    prepare_stage_seconds: float = 0.0
+    update_stage_seconds: float = 0.0
+    phase_stage_seconds: float = 0.0
 
 
 def identity_transform(ndim: int) -> npt.NDArray[np.float64]:
