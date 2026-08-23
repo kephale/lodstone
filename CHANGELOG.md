@@ -3,7 +3,7 @@
 Lodstone follows semantic versioning. Viewer adapters remain provisional during
 the 0.1 alpha series and may change between prereleases.
 
-## 0.1.0a0 - Unreleased
+## 0.1.0a0 - 2026-08-23
 
 - Add renderer-neutral multiscale chunk planning and progressive streaming.
 - Add bounded caches, cancellation, request reprioritization, and diagnostics.
