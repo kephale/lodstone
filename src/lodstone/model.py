@@ -223,6 +223,7 @@ class Layout:
     max_axis_extent: int | None = None
     memory_policy: Literal["coarsen", "crop"] = "coarsen"
     focus_depth_weight: float | None = None
+    focus_depth_target: float | None = None
 
     def __post_init__(self) -> None:
         if self.block_shape is not None and any(
@@ -239,6 +240,11 @@ class Layout:
             not np.isfinite(self.focus_depth_weight) or self.focus_depth_weight < 0
         ):
             raise ValueError("focus_depth_weight must be finite and nonnegative")
+        if self.focus_depth_target is not None and (
+            not np.isfinite(self.focus_depth_target)
+            or not 0 <= self.focus_depth_target <= 1
+        ):
+            raise ValueError("focus_depth_target must be finite and in [0, 1]")
 
 
 @dataclass(frozen=True, slots=True)

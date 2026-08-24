@@ -12,6 +12,7 @@ from lodstone import (
     Region,
     Tile,
     TileKey,
+    View,
     available_tile_keys,
     merge_plans,
     plan_from_slices,
@@ -71,6 +72,64 @@ def test_zoomed_in_view_selects_finest_level(ortho_view) -> None:
     plan = Planner(progressive=False).plan(
         source.pyramid, view, Layout(block_shape=(32, 32))
     )
+    assert plan.target_level == 0
+
+
+def test_rectilinear_chunk_containing_crosshair_has_first_priority() -> None:
+    source = ArrayPyramidSource(
+        [np.zeros((100, 200), dtype=np.uint8)],
+        chunks=[((100,), (90, 10, 100))],
+    )
+    matrix = np.eye(4)
+    matrix[0, 0] = 2 / 100
+    matrix[0, 3] = -1
+    matrix[1, 1] = 2 / 100
+    matrix[1, 3] = -1.6
+    view = View((0, 1), (None, None), (512, 512), matrix)
+
+    plan = Planner(progressive=False).plan(
+        source.pyramid,
+        view,
+        Layout(kind="tiled"),
+    )
+
+    assert plan.wanted[0].region == Region((0, 0), (100, 90))
+
+
+def test_perspective_lod_uses_near_visible_voxel_footprint() -> None:
+    projection = np.zeros((4, 4), dtype=np.float64)
+    near, far = 1.0, 100.0
+    projection[0, 0] = projection[1, 1] = 1.0
+    projection[2, 2] = -(far + near) / (far - near)
+    projection[2, 3] = -(2 * far * near) / (far - near)
+    projection[3, 2] = -1.0
+    fine_transform = np.diag((0.01, 0.01, 1.0, 1.0))
+    fine_transform[:2, 3] = -0.5
+    fine_transform[2, 3] = -10.0
+    coarse_transform = np.diag((0.02, 0.02, 2.0, 1.0))
+    coarse_transform[:2, 3] = -0.5
+    coarse_transform[2, 3] = -10.0
+    source = ArrayPyramidSource(
+        [
+            np.zeros((100, 100, 8), dtype=np.uint8),
+            np.zeros((50, 50, 4), dtype=np.uint8),
+        ],
+        transforms=[fine_transform, coarse_transform],
+        chunks=[(25, 25, 2), (25, 25, 2)],
+    )
+    view = View(
+        (0, 1, 2),
+        (None, None, None),
+        (512, 512),
+        projection,
+    )
+
+    plan = Planner(progressive=False).plan(
+        source.pyramid,
+        view,
+        Layout(kind="bricked", memory_limit=1 << 30),
+    )
+
     assert plan.target_level == 0
 
 
@@ -268,6 +327,65 @@ def test_dense_crop_can_balance_focus_depth_against_screen_center(ortho_view) ->
     )
 
 
+def test_volume_focus_priority_delivers_center_ray_before_canvas_edges(
+    ortho_view,
+) -> None:
+    shape = (64, 64, 64)
+    source = ArrayPyramidSource(
+        [np.zeros(shape, dtype=np.uint8)],
+        chunks=[(16, 16, 16)],
+    )
+    view = ortho_view(shape, viewport=(256, 256))
+    matrix = view.world_to_clip.copy()
+    matrix[0, 3] = matrix[1, 3] = -0.75
+    view = replace(view, world_to_clip=matrix)
+
+    plan = Planner(progressive=False).plan(
+        source.pyramid,
+        view,
+        Layout(
+            kind="dense",
+            block_shape=(16, 16, 16),
+            memory_limit=8 * 16**3,
+            memory_policy="crop",
+            focus_depth_weight=0.5,
+        ),
+    )
+
+    assert [tile.key.grid_index for tile in plan.wanted[:2]] == [
+        (1, 1, 0),
+        (1, 1, 1),
+    ]
+
+
+def test_volume_focus_can_refine_outward_from_visual_depth_center(
+    ortho_view,
+) -> None:
+    shape = (64, 64, 64)
+    source = ArrayPyramidSource(
+        [np.zeros(shape, dtype=np.uint8)],
+        chunks=[(16, 16, 16)],
+    )
+    view = ortho_view(shape, viewport=(256, 256))
+
+    plan = Planner(progressive=False).plan(
+        source.pyramid,
+        view,
+        Layout(
+            kind="dense",
+            block_shape=(16, 16, 16),
+            memory_limit=8 * 16**3,
+            memory_policy="crop",
+            focus_depth_weight=0.5,
+            focus_depth_target=0.5,
+        ),
+    )
+
+    assert plan.wanted[0].key.grid_index == (1, 1, 2)
+    assert {tile.key.grid_index[2] for tile in plan.wanted[:4]} == {2}
+    assert {tile.key.grid_index[2] for tile in plan.wanted} == {1, 2}
+
+
 def test_dense_crop_tunes_canvas_coverage_against_depth_reach(ortho_view) -> None:
     shape = (64, 64, 64)
     source = ArrayPyramidSource(
@@ -314,6 +432,12 @@ def test_dense_crop_tunes_canvas_coverage_against_depth_reach(ortho_view) -> Non
 def test_focus_depth_weight_must_be_finite_and_nonnegative(value) -> None:
     with pytest.raises(ValueError, match="focus_depth_weight"):
         Layout(focus_depth_weight=value)
+
+
+@pytest.mark.parametrize("value", [-1, 1.1, float("inf"), float("nan")])
+def test_focus_depth_target_must_be_normalized_and_finite(value) -> None:
+    with pytest.raises(ValueError, match="focus_depth_target"):
+        Layout(focus_depth_target=value)
 
 
 def test_available_tiles_are_retained_but_not_requested(ortho_view) -> None:

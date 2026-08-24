@@ -7,6 +7,10 @@ into progressive array `Update`s accepted by a viewer-specific `Target`.
 It is intended to be shared by clients such as ChimeraX, napari, and ndv.
 Lodstone does not create windows, textures, shaders, layers, or viewer models.
 
+See [Camera-aware multiscale rendering](docs/rendering-architecture.md) for the
+planner math and the staged path toward sharding, metadata culling, and virtual
+texture residency.
+
 Lodstone is currently an alpha. The renderer-neutral core is the compatibility
 boundary for the 0.1 series; viewer adapters are experimental and may change
 between prereleases as their host applications establish public streaming APIs.
@@ -223,6 +227,15 @@ Progressive planning starts at the coarsest level by default. Renderer
 integrations can set `Planner(max_initial_voxel_footprint=...)` to choose the
 coarsest initial level whose projected voxels stay within that many screen
 pixels; the normal target level and napari's default behavior are unchanged.
+The footprint is evaluated along the visible center and corner rays, so a
+perspective view does not undersample near content merely because voxels at the
+dataset midpoint are small. Chunk centrality likewise measures distance from
+the crosshair to the projected block hull rather than to the block centroid.
+For translucent 3-D volumes, `Layout(focus_depth_weight=...)` balances that
+screen-space distance against near-to-far depth for both focus-box selection
+and delivery order. Set `focus_depth_target=0.5` to refine outward from the
+visual depth center instead; this is useful for additive fluorescence where a
+central column of detail is more informative than an opaque front surface.
 
 `stream.diagnostics` separates renderer tiles from native storage activity for
 the current or most recent generation. `stream.cache_events` records recent

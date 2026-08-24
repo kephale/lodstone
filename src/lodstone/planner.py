@@ -76,6 +76,7 @@ class Planner:
             if layout.mixed_lod and target_level == context_level
             else layout.focus_depth_weight
         )
+        target_depth = layout.focus_depth_target
         while target_level < len(pyramid.levels) - 1:
             target_tiles = self._tiles_for_level(
                 pyramid,
@@ -84,6 +85,7 @@ class Planner:
                 target_level,
                 phase=0,
                 focus_depth_weight=target_depth_weight,
+                focus_depth_target=target_depth,
             )
             if layout.memory_policy == "crop":
                 if target_tiles:
@@ -112,6 +114,9 @@ class Planner:
                 phase,
                 focus_depth_weight=(
                     target_depth_weight if level_index == target_level else None
+                ),
+                focus_depth_target=(
+                    target_depth if level_index == target_level else None
                 ),
             )
             desired.extend(tiles)
@@ -184,6 +189,12 @@ class Planner:
                 view,
                 selection,
                 phase,
+                focus_depth_weight=(
+                    layout.focus_depth_weight if level_index == target_level else None
+                ),
+                focus_depth_target=(
+                    layout.focus_depth_target if level_index == target_level else None
+                ),
             )
             desired.extend(tiles)
             if level_index == target_level or (
@@ -326,6 +337,7 @@ class Planner:
         phase: int,
         *,
         focus_depth_weight: float | None = None,
+        focus_depth_target: float | None = None,
     ) -> list[Tile]:
         level = pyramid.levels[level_index]
         grids = _display_grid(layout, level, view.displayed_axes)
@@ -352,7 +364,19 @@ class Planner:
             if not projected.visible:
                 continue
             key = TileKey(level_index, tuple(grid_index), selection)
-            result.append(Tile(key, region, projected.priority, phase))
+            result.append(
+                Tile(
+                    key,
+                    region,
+                    _visual_priority(
+                        projected,
+                        view,
+                        focus_depth_weight,
+                        focus_depth_target,
+                    ),
+                    phase,
+                )
+            )
 
         if layout.memory_policy == "crop":
             return _crop_dense_tiles(
@@ -548,6 +572,9 @@ def _tiles_in_region(
     view: View,
     selection: tuple[int, ...],
     phase: int,
+    *,
+    focus_depth_weight: float | None = None,
+    focus_depth_target: float | None = None,
 ) -> list[Tile]:
     per_axis = []
     for axis in range(level.ndim):
@@ -569,7 +596,19 @@ def _tiles_in_region(
         displayed_grid = tuple(grid_index[axis] for axis in view.displayed_axes)
         key = TileKey(level_index, displayed_grid, selection)
         projection = _project_region(level.voxel_to_world, tile_region, view)
-        tiles.append(Tile(key, tile_region, projection.priority, phase))
+        tiles.append(
+            Tile(
+                key,
+                tile_region,
+                _visual_priority(
+                    projection,
+                    view,
+                    focus_depth_weight,
+                    focus_depth_target,
+                ),
+                phase,
+            )
+        )
     return tiles
 
 
@@ -586,21 +625,7 @@ def _crop_dense_tiles(
     selected: list[Tile] = []
     start: tuple[int, ...] | None = None
     stop: tuple[int, ...] | None = None
-    if focus_depth_weight is None or len(view.displayed_axes) != 3:
-        priority = lambda item: (item.priority, item.key.grid_index)
-    else:
-
-        def priority(item: Tile) -> tuple[float, tuple[int, ...]]:
-            projection = _project_region(level.voxel_to_world, item.region, view)
-            # Work in perceptual NDC units.  Euclidean screen distance grows
-            # linearly from the visual center, while depth is normalized from
-            # near=0 to far=1.  A large depth weight therefore fills the canvas
-            # on near planes first; a small nonzero weight builds a central
-            # column front-to-back without falling back to data-axis ordering.
-            screen_distance = math.sqrt(max(0.0, projection.center_distance))
-            normalized_depth = min(1.0, max(0.0, (projection.depth + 1.0) / 2.0))
-            score = screen_distance + focus_depth_weight * normalized_depth
-            return score, item.key.grid_index
+    priority = lambda item: (item.priority, item.key.grid_index)
 
     for tile in sorted(tiles, key=priority):
         candidate_start = (
@@ -622,6 +647,29 @@ def _crop_dense_tiles(
         selected.append(tile)
         start, stop = candidate_start, candidate_stop
     return selected
+
+
+def _visual_priority(
+    projection: _Projection,
+    view: View,
+    focus_depth_weight: float | None,
+    focus_depth_target: float | None,
+) -> float:
+    if focus_depth_weight is None or len(view.displayed_axes) != 3:
+        return projection.priority
+    # Work in perceptual NDC units.  Euclidean screen distance grows linearly
+    # from the nearest edge of the block to the crosshair, while depth is
+    # normalized from near=0 to far=1.  A large depth weight fills near canvas
+    # planes first; a small nonzero weight builds a central column through the
+    # volume.  Use this score for both crop selection and delivery ordering.
+    screen_distance = math.sqrt(max(0.0, projection.center_distance))
+    normalized_depth = min(1.0, max(0.0, (projection.depth + 1.0) / 2.0))
+    depth_distance = (
+        normalized_depth
+        if focus_depth_target is None
+        else abs(normalized_depth - focus_depth_target)
+    )
+    return screen_distance + focus_depth_weight * depth_distance
 
 
 def _local_world(
@@ -647,23 +695,156 @@ def _clip_points(points: np.ndarray, view: View) -> np.ndarray:
     return clip[:, :3] / safe[:, None]
 
 
+def _distance_to_projected_hull(points: np.ndarray) -> float:
+    """Return squared screen-center distance to a 2-D convex point hull."""
+
+    unique = sorted({(float(point[0]), float(point[1])) for point in points})
+    if len(unique) == 1:
+        return unique[0][0] ** 2 + unique[0][1] ** 2
+
+    def cross(origin, first, second) -> float:
+        return (first[0] - origin[0]) * (second[1] - origin[1]) - (
+            first[1] - origin[1]
+        ) * (second[0] - origin[0])
+
+    lower = []
+    for point in unique:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], point) <= 0:
+            lower.pop()
+        lower.append(point)
+    upper = []
+    for point in reversed(unique):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], point) <= 0:
+            upper.pop()
+        upper.append(point)
+    hull = lower[:-1] + upper[:-1]
+    if len(hull) >= 3 and all(
+        cross(start, stop, (0.0, 0.0)) >= -1e-12
+        for start, stop in zip(hull, (*hull[1:], hull[0]), strict=True)
+    ):
+        return 0.0
+
+    distance = math.inf
+    for start, stop in zip(hull, (*hull[1:], hull[0]), strict=True):
+        a = np.asarray(start)
+        edge = np.asarray(stop) - a
+        length_squared = float(np.dot(edge, edge))
+        amount = (
+            0.0
+            if length_squared == 0
+            else min(1.0, max(0.0, -float(np.dot(a, edge)) / length_squared))
+        )
+        nearest = a + amount * edge
+        distance = min(distance, float(np.dot(nearest, nearest)))
+    return distance
+
+
 def _voxel_footprint_px(
     matrix: np.ndarray, shape: tuple[int, ...], view: View
 ) -> float:
-    center = (np.asarray(shape, dtype=np.float64) - 1.0) / 2.0
-    points = [center]
-    for axis in view.displayed_axes:
-        point = center.copy()
-        point[axis] += 1.0
-        points.append(point)
-    local = _local_world(matrix, np.asarray(points), view.displayed_axes)
-    clip = _clip_points(local, view)
-    if not np.all(np.isfinite(clip)):
-        return math.inf
+    samples = _view_samples(matrix, shape, view)
     scale = np.asarray(view.viewport, dtype=np.float64) / 2.0
-    origin = clip[0, :2] * scale
-    lengths = [np.linalg.norm(point[:2] * scale - origin) for point in clip[1:]]
+    lengths = []
+    for sample in samples:
+        points = [sample]
+        for axis in view.displayed_axes:
+            point = sample.copy()
+            point[axis] += 1.0
+            points.append(point)
+        local = _local_world(matrix, np.asarray(points), view.displayed_axes)
+        clip = _clip_points(local, view)
+        if not np.all(np.isfinite(clip)):
+            continue
+        origin = clip[0, :2] * scale
+        lengths.extend(np.linalg.norm(point[:2] * scale - origin) for point in clip[1:])
     return float(max(lengths, default=math.inf))
+
+
+def _view_samples(
+    matrix: np.ndarray, shape: tuple[int, ...], view: View
+) -> list[np.ndarray]:
+    """Sample the visible data depth at the center and viewport corners.
+
+    A perspective camera can magnify a voxel near the viewer several times
+    more than one at the data-set center.  Sampling the center ray and four
+    frustum-corner rays keeps level selection tied to visible pixel demand
+    without enumerating the chunk grid.
+    """
+
+    displayed = view.displayed_axes
+    fixed = (np.asarray(shape, dtype=np.float64) - 1.0) / 2.0
+    # Construct the affine map from displayed data coordinates to Lodstone's
+    # three camera-local world coordinates while holding hidden axes fixed.
+    origin_data = fixed.copy()
+    origin_data[list(displayed)] = 0.0
+    points = [origin_data]
+    for axis in displayed:
+        point = origin_data.copy()
+        point[axis] = 1.0
+        points.append(point)
+    local = _local_world(matrix, np.asarray(points), displayed)
+    data_to_local = np.eye(4, dtype=np.float64)
+    data_to_local[:3, :] = 0.0
+    data_to_local[:3, 3] = local[0]
+    for local_axis in range(len(displayed)):
+        data_to_local[:3, local_axis] = local[local_axis + 1] - local[0]
+    data_to_clip = view.world_to_clip @ data_to_local
+
+    ndc_points = ((0.0, 0.0), (-1.0, -1.0), (-1.0, 1.0), (1.0, -1.0), (1.0, 1.0))
+    samples: list[np.ndarray] = []
+    if len(displayed) == 2:
+        homography = data_to_clip[np.ix_((0, 1, 3), (0, 1, 3))]
+        try:
+            inverse = np.linalg.inv(homography)
+        except np.linalg.LinAlgError:
+            return [fixed]
+        for x, y in ndc_points:
+            data_h = inverse @ np.asarray((x, y, 1.0))
+            if abs(data_h[2]) < 1e-12:
+                continue
+            coordinates = data_h[:2] / data_h[2]
+            if all(
+                0.0 <= value <= shape[axis]
+                for value, axis in zip(coordinates, displayed, strict=True)
+            ):
+                point = fixed.copy()
+                point[list(displayed)] = coordinates
+                samples.append(point)
+    else:
+        try:
+            inverse = np.linalg.inv(data_to_clip)
+        except np.linalg.LinAlgError:
+            return [fixed]
+        bounds = np.asarray([shape[axis] for axis in displayed], dtype=np.float64)
+        for x, y in ndc_points:
+            endpoints = []
+            for depth in (-1.0, 1.0):
+                data_h = inverse @ np.asarray((x, y, depth, 1.0))
+                if abs(data_h[3]) < 1e-12:
+                    break
+                endpoints.append(data_h[:3] / data_h[3])
+            if len(endpoints) != 2:
+                continue
+            segment = np.asarray(endpoints)
+            direction = segment[1] - segment[0]
+            lower, upper = 0.0, 1.0
+            for axis in range(3):
+                if abs(direction[axis]) < 1e-12:
+                    if not 0.0 <= segment[0, axis] <= bounds[axis]:
+                        lower, upper = 1.0, 0.0
+                        break
+                    continue
+                first = (0.0 - segment[0, axis]) / direction[axis]
+                last = (bounds[axis] - segment[0, axis]) / direction[axis]
+                lower = max(lower, min(first, last))
+                upper = min(upper, max(first, last))
+            if lower > upper:
+                continue
+            for amount in (lower, (lower + upper) / 2.0, upper):
+                point = fixed.copy()
+                point[list(displayed)] = segment[0] + amount * direction
+                samples.append(point)
+    return samples or [fixed]
 
 
 class _Projection:
@@ -703,17 +884,22 @@ def _project_region(matrix: np.ndarray, region: Region, view: View) -> _Projecti
     visible = bool(
         np.all(np.max(clip, axis=0) >= -1.0) and np.all(np.min(clip, axis=0) <= 1.0)
     )
-    center = np.mean(clip[:, :2], axis=0)
-    center_distance = float(np.dot(center, center))
+    # Distance to the projected hull, rather than distance to its mean,
+    # makes a block containing the crosshair unambiguously central.  The old
+    # centroid metric could prefer a small neighbouring block over a large
+    # block through the actual center ray on rectilinear chunk grids.
+    center_distance = _distance_to_projected_hull(clip[:, :2])
+    centroid = np.mean(clip[:, :2], axis=0)
+    centroid_distance = float(np.dot(centroid, centroid))
     if len(view.displayed_axes) == 3:
         # OpenGL NDC depth runs near-to-far from -1 to +1. Depth dominates
         # the center-distance tie breaker, yielding front-to-back delivery
         # while keeping chunks on a similar plane center-first.
         depth = float(np.min(clip[:, 2]))
-        priority = depth * 1_000_000.0 + center_distance
+        priority = depth * 1_000_000.0 + center_distance + centroid_distance * 1e-6
     else:
         depth = 0.0
-        priority = center_distance
+        priority = center_distance + centroid_distance * 1e-6
     return _Projection(
         visible,
         priority,
