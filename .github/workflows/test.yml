@@ -41,5 +41,5 @@ jobs:
           python-version: "3.13"
       - run: uv run --group dev ruff check .
       - run: uv run --group dev ruff format --check .
-      - run: uv run --extra ome-zarr --group dev pyright src
+      - run: uv run --extra ome-zarr --extra vispy --group dev pyright src
       - run: uv build

@@ -3,6 +3,11 @@
 Lodstone follows semantic versioning. Viewer adapters remain provisional during
 the 0.1 alpha series and may change between prereleases.
 
+## Unreleased
+
+- Add opt-in VisPy GLIR texture-upload metering with per-frame budgets,
+  interaction holds, drain callbacks, and paced deletion.
+
 ## 0.1.0a0 - 2026-08-23
 
 - Add renderer-neutral multiscale chunk planning and progressive streaming.

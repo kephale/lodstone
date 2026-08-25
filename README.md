@@ -144,6 +144,22 @@ See [Camera-aware multiscale rendering](docs/rendering-architecture.md) for the
 planner math and the roadmap for metadata culling, sharding, and virtual
 texture residency.
 
+### VisPy upload metering
+
+Progressive loading can queue enough texture data to stall VisPy's next draw.
+The optional GLIR meter splits large 2-D and 3-D texture uploads into slabs and
+limits the bytes uploaded per frame while preserving per-texture command order:
+
+```python
+from lodstone.adapters import vispy_glir
+
+vispy_glir.install(frame_budget_bytes=4 * 2**20, slab_bytes=1 * 2**20)
+```
+
+Install Lodstone with `lodstone[vispy]` to use this adapter. Viewer integrations
+can also register drain callbacks, hold uploads during interaction, and exempt
+double-buffered textures through the module's public helper functions.
+
 ## Viewer status
 
 | Viewer | Integration | Status |
@@ -161,7 +177,7 @@ only for combinations covered by native tests and visual smoke tests.
 ```bash
 uv run --extra test pytest
 uv run --group dev ruff check .
-uv run --group dev pyright src
+uv run --extra ome-zarr --extra vispy --group dev pyright src
 ```
 
 The test suite is network-independent. See [CHANGELOG.md](CHANGELOG.md),
