@@ -327,10 +327,10 @@ def _mask_occupied_context(
 class NDVController:
     """Connect a Lodstone source to an ndv ``ArrayViewer`` or canvas.
 
-    The viewer integration intentionally accepts explicit :class:`View`
-    snapshots while ndv's public canvas API does not yet expose a camera matrix.
-    This is enough for full-view 2-D/3-D use and keeps camera-event policy out of
-    the renderer target.
+    The initial :class:`View` snapshot establishes displayed and selected axes.
+    When the canvas exposes ndv's camera API, later camera changes are captured,
+    debounced, and replanned automatically without coupling the target to either
+    the VisPy or pygfx backend.
     """
 
     def __init__(
