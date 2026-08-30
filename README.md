@@ -12,8 +12,8 @@ streaming APIs stabilize.
 ## Install
 
 ```bash
-pip install lodstone==0.1.0a0
-pip install "lodstone[ome-zarr]==0.1.0a0"  # remote OME-Zarr sources
+pip install lodstone==0.1.0a1
+pip install "lodstone[ome-zarr]==0.1.0a1"  # remote OME-Zarr sources
 ```
 
 For the runnable viewer demos below, clone Lodstone so the example scripts are

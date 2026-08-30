@@ -3,6 +3,16 @@
 Lodstone follows semantic versioning. Viewer adapters remain provisional during
 the 0.1 alpha series and may change between prereleases.
 
+## 0.1.0a1 - 2026-08-30
+
+- Improve perspective camera-aware level selection by sampling visible depth.
+- Prioritize focus blocks by distance to their projected hull instead of only
+  their centroid.
+- Add configurable depth-centered focus ordering for additive and fluorescence
+  volume rendering.
+- Document the renderer residency architecture and practical napari, ndv, and
+  ChimeraX integration workflows.
+
 ## 0.1.0a0 - 2026-08-23
 
 - Add renderer-neutral multiscale chunk planning and progressive streaming.
