@@ -367,7 +367,7 @@ class NDVController:
         self._presenting = False
         self.runtime = runtime or Runtime()
         self._owns_runtime = runtime is None
-        self.target = NDVTarget(
+        self.target = self._make_target(
             self.canvas,
             source.pyramid,
             memory_limit=memory_limit,
@@ -401,6 +401,14 @@ class NDVController:
             daemon=True,
         )
         self._camera_thread.start()
+
+    def _make_target(self, canvas: Any, pyramid: Pyramid, **options: Any) -> NDVTarget:
+        """Create the dense target used by this controller.
+
+        Subclasses can adapt another renderer-neutral scene API while retaining
+        the camera debounce and stream lifecycle implemented here.
+        """
+        return NDVTarget(canvas, pyramid, **options)
 
     def update(self, view: View) -> Plan:
         self._last_view = view
