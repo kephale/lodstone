@@ -28,6 +28,7 @@ from .model import (
     InteractionState,
     Layout,
     Level,
+    PerformanceSnapshot,
     Plan,
     PlanCoverage,
     PlanDelta,
@@ -35,6 +36,7 @@ from .model import (
     Region,
     Status,
     StreamDiagnostics,
+    TargetDiagnostics,
     Tile,
     TileKey,
     Update,
@@ -57,7 +59,15 @@ from .resident import (
 from .runtime import Runtime
 from .source import Source
 from .stream import Stream
-from .target import PassTarget, PhaseTarget, ResidencyLease, StagingTarget, Target
+from .target import (
+    InstrumentedTarget,
+    PassTarget,
+    PhaseTarget,
+    ResidencyLease,
+    StagingTarget,
+    Target,
+)
+from .telemetry import PerformanceRecorder
 from .virtual import MultiScaleVirtualData, VirtualArrayView, VirtualData
 
 __version__ = version("lodstone")
@@ -66,12 +76,15 @@ __all__ = [
     "ChunkEvent",
     "ChunkGrid",
     "ChunkState",
+    "InstrumentedTarget",
     "InteractionState",
     "Layout",
     "Level",
     "LevelDiagnosticArray",
     "MultiScaleVirtualData",
     "PassTarget",
+    "PerformanceRecorder",
+    "PerformanceSnapshot",
     "PhaseTarget",
     "Plan",
     "PlanComparison",
@@ -94,6 +107,7 @@ __all__ = [
     "Stream",
     "StreamDiagnostics",
     "Target",
+    "TargetDiagnostics",
     "Tile",
     "TileKey",
     "Update",

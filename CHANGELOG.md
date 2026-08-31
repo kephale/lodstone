@@ -10,6 +10,8 @@ the 0.1 alpha series and may change between prereleases.
 - Add reusable `DenseTarget` and `DenseController` implementations while
   preserving the existing ndv import names.
 - Expose depth-centered focus policy through the generalized dense controller.
+- Add standardized stream, source, host-dispatch, and renderer performance
+  snapshots with a bounded cross-viewer recorder.
 
 ## 0.1.0a1 - 2026-08-30
 

@@ -8,7 +8,7 @@ from collections.abc import Collection, Sequence
 
 import numpy as np
 
-from .model import Layout, Pyramid, Region, TileKey, Update, View
+from .model import Layout, Pyramid, Region, TargetDiagnostics, TileKey, Update, View
 from .sources.array import ArrayPyramidSource
 
 
@@ -53,3 +53,12 @@ class RecordingTarget:
     def redraw(self) -> None:
         with self._lock:
             self.redraws += 1
+
+    def performance_metrics(self) -> TargetDiagnostics:
+        """Report renderer-submission values available to this test target."""
+
+        with self._lock:
+            return TargetDiagnostics(
+                submitted_bytes=sum(update.data.nbytes for update in self.updates),
+                presentations=self.redraws,
+            )

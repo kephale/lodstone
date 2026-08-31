@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Collection, Sequence
 from typing import Any, Protocol, runtime_checkable
 
-from .model import Layout, Plan, Pyramid, TileKey, Update, View
+from .model import Layout, Plan, Pyramid, TargetDiagnostics, TileKey, Update, View
 
 
 @runtime_checkable
@@ -89,3 +89,10 @@ class StagingTarget(Protocol):
     def stage(self, updates: Sequence[Update]) -> Any:
         """Prepare updates on the stream thread for cheap host application."""
         ...
+
+
+@runtime_checkable
+class InstrumentedTarget(Protocol):
+    """Optional renderer telemetry merged into stream performance samples."""
+
+    def performance_metrics(self) -> TargetDiagnostics: ...
