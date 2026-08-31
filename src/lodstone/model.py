@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import bisect
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from functools import reduce
 from operator import mul
@@ -412,7 +412,7 @@ class ChunkEvent:
 
 @dataclass(frozen=True, slots=True)
 class StreamDiagnostics:
-    """Plan and native-read counters for one stream generation."""
+    """Plan, I/O, staging, and host-delivery metrics for one generation."""
 
     generation: int = 0
     desired_tiles: int = 0
@@ -424,9 +424,39 @@ class StreamDiagnostics:
     evictions: int = 0
     cache_chunks: int = 0
     cache_bytes: int = 0
+    planned_bytes: int = 0
+    source_bytes: int = 0
+    delivered_bytes: int = 0
+    updates_delivered: int = 0
+    phases_presented: int = 0
     prepare_stage_seconds: float = 0.0
     update_stage_seconds: float = 0.0
     phase_stage_seconds: float = 0.0
+    target_wait_seconds: float = 0.0
+    max_target_wait_seconds: float = 0.0
+    elapsed_seconds: float = 0.0
+    time_to_first_phase_seconds: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TargetDiagnostics:
+    """Optional renderer-reported work not observable by the stream."""
+
+    submitted_bytes: int = 0
+    uploaded_bytes: int = 0
+    pending_upload_bytes: int = 0
+    presentations: int = 0
+    upload_seconds: float = 0.0
+    max_upload_stall_seconds: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class PerformanceSnapshot:
+    """One renderer-neutral stream and target performance sample."""
+
+    status: Status
+    stream: StreamDiagnostics
+    target: TargetDiagnostics = field(default_factory=TargetDiagnostics)
 
 
 def identity_transform(ndim: int) -> npt.NDArray[np.float64]:

@@ -17,11 +17,13 @@ import numpy as np
 from .model import (
     ChunkEvent,
     ChunkState,
+    PerformanceSnapshot,
     Plan,
     PlanDelta,
     Region,
     Status,
     StreamDiagnostics,
+    TargetDiagnostics,
     Tile,
     TileKey,
     Update,
@@ -109,6 +111,7 @@ class Stream:
         self._chunk_states: dict[tuple[int, tuple[int, ...]], ChunkState] = {}
         self._cache_events: deque[ChunkEvent] = deque(maxlen=512)
         self._diagnostics = StreamDiagnostics()
+        self._generation_started_at = time.perf_counter()
         self._chunk_tasks: dict[
             tuple[int, tuple[int, ...]], asyncio.Task[np.ndarray]
         ] = {}
@@ -137,6 +140,21 @@ class Stream:
         """Native-read counters for the current or most recent pass."""
         with self._state_lock:
             return self._diagnostics
+
+    @property
+    def performance(self) -> PerformanceSnapshot:
+        """Return a standardized stream and renderer performance snapshot."""
+
+        with self._state_lock:
+            status = self._status
+            diagnostics = self._diagnostics
+        metrics = getattr(self.target, "performance_metrics", None)
+        target = metrics() if metrics is not None else TargetDiagnostics()
+        if not isinstance(target, TargetDiagnostics):
+            raise TypeError(
+                "target performance_metrics() must return TargetDiagnostics"
+            )
+        return PerformanceSnapshot(status, diagnostics, target)
 
     @property
     def cache_events(self) -> tuple[ChunkEvent, ...]:
@@ -222,6 +240,7 @@ class Stream:
             available = frozenset(self._available)
             cache_chunks = self._diagnostics.cache_chunks
             cache_bytes = self._diagnostics.cache_bytes
+            self._generation_started_at = time.perf_counter()
             self._diagnostics = StreamDiagnostics(
                 generation=generation,
                 desired_tiles=len(plan.desired or plan.wanted),
@@ -229,6 +248,11 @@ class Stream:
                 unique_native_chunks=len(self._native_chunk_keys(plan.wanted)),
                 cache_chunks=cache_chunks,
                 cache_bytes=cache_bytes,
+                planned_bytes=sum(
+                    tile.region.size
+                    * self.source.pyramid.levels[tile.level].dtype.itemsize
+                    for tile in plan.wanted
+                ),
             )
         if self._active is not None:
             self._active.cancel()
@@ -615,6 +639,7 @@ class Stream:
             )
         self._chunk_cache[key] = array
         self._chunk_cache_bytes += array.nbytes
+        self._increment_diagnostics(generation, source_bytes=array.nbytes)
         self._transition_chunk(
             generation, key, ChunkState.READY, "source read completed"
         )
@@ -720,7 +745,12 @@ class Stream:
                 self._available.update(update.key for update in updates)
             self.target.redraw()
 
-        await self._run_on_target(apply)
+        await self._run_on_target(apply, generation)
+        self._increment_diagnostics(
+            generation,
+            delivered_bytes=sum(update.data.nbytes for update in updates),
+            updates_delivered=len(updates),
+        )
 
     async def _deliver_prepare(
         self, generation: int, view: View, plan: Plan
@@ -749,7 +779,7 @@ class Stream:
                 else:
                     result = prepare(view, plan, prepared)
 
-        await self._run_on_target(run)
+        await self._run_on_target(run, generation)
         lease = result if isinstance(result, ResidencyLease) else None
         if lease is not None and self._is_current(generation):
             with self._state_lock:
@@ -766,7 +796,7 @@ class Stream:
             if self._is_current(generation):
                 complete(view, plan)
 
-        await self._run_on_target(run)
+        await self._run_on_target(run, generation)
 
     async def _deliver_phase_complete(
         self, generation: int, view: View, plan: Plan, phase: int
@@ -792,7 +822,16 @@ class Stream:
                 else:
                     phase_complete(view, plan, phase, prepared)
 
-        await self._run_on_target(run)
+        await self._run_on_target(run, generation)
+        with self._state_lock:
+            if self._diagnostics.generation == generation:
+                elapsed = time.perf_counter() - self._generation_started_at
+                first = self._diagnostics.time_to_first_phase_seconds
+                self._diagnostics = replace(
+                    self._diagnostics,
+                    phases_presented=self._diagnostics.phases_presented + 1,
+                    time_to_first_phase_seconds=(elapsed if first is None else first),
+                )
 
     async def _deliver_discard(
         self, generation: int, keys: Collection[TileKey]
@@ -807,18 +846,23 @@ class Stream:
             with self._state_lock:
                 self._available.difference_update(keys)
 
-        await self._run_on_target(discard)
+        await self._run_on_target(discard, generation)
 
     async def _deliver_redraw(self, generation: int) -> None:
         def redraw() -> None:
             if self._is_current(generation):
                 self.target.redraw()
 
-        await self._run_on_target(redraw)
+        await self._run_on_target(redraw, generation)
 
-    async def _run_on_target(self, callback: Callable[[], None]) -> None:
+    async def _run_on_target(
+        self,
+        callback: Callable[[], None],
+        generation: int,
+    ) -> None:
         """Dispatch a target call and wait until the host has applied it."""
 
+        started = time.perf_counter()
         completed: asyncio.Future[None] = self._loop.create_future()
 
         def resolve(error: Exception | None = None) -> None:
@@ -843,6 +887,16 @@ class Stream:
 
         self.dispatch(run)
         await completed
+        elapsed = time.perf_counter() - started
+        with self._state_lock:
+            if self._diagnostics.generation == generation:
+                self._diagnostics = replace(
+                    self._diagnostics,
+                    target_wait_seconds=self._diagnostics.target_wait_seconds + elapsed,
+                    max_target_wait_seconds=max(
+                        self._diagnostics.max_target_wait_seconds, elapsed
+                    ),
+                )
 
     def _dispatch_redraw(self, generation: int) -> None:
         def redraw() -> None:
@@ -856,6 +910,11 @@ class Stream:
             if status.generation < self._generation:
                 return
             self._status = status
+            if self._diagnostics.generation == status.generation:
+                self._diagnostics = replace(
+                    self._diagnostics,
+                    elapsed_seconds=time.perf_counter() - self._generation_started_at,
+                )
             callbacks = tuple(self._status_callbacks)
         for callback in callbacks:
             self.dispatch(lambda callback=callback, status=status: callback(status))

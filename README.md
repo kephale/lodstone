@@ -151,6 +151,11 @@ See [Camera-aware multiscale rendering](docs/rendering-architecture.md) for the
 planner math and the roadmap for metadata culling, sharding, and virtual
 texture residency.
 
+For comparable measurements across hosts and rendering backends, see
+[Performance telemetry](docs/performance-telemetry.md). Lodstone records planned,
+source, delivered, staging, and host-dispatch work; render targets may add GPU
+upload and presentation metrics without exposing renderer APIs to the core.
+
 ## Viewer status
 
 | Viewer | Integration | Status |
