@@ -5,13 +5,22 @@ from __future__ import annotations
 from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, replace
 from itertools import product
-from threading import Condition, Thread
+from threading import Condition, Lock, Thread
 from time import monotonic
 from typing import Any, Protocol, Self, runtime_checkable
 
 import numpy as np
 
-from ..model import Layout, Plan, Pyramid, Region, TileKey, Update, View
+from ..model import (
+    Layout,
+    Plan,
+    Pyramid,
+    Region,
+    TargetDiagnostics,
+    TileKey,
+    Update,
+    View,
+)
 from ..planner import Planner
 from ..resident import ResidentArrays, ResidentLease
 from ..runtime import Runtime
@@ -144,6 +153,25 @@ class DenseTarget:
         self._context_level = len(pyramid.levels) - 1
         self._masked_focus: tuple[int, Region] | None = None
         self.on_presented = on_presented
+        self._diagnostics_lock = Lock()
+        self._submitted_bytes = 0
+        self._presentations = 0
+
+    def performance_metrics(self) -> TargetDiagnostics:
+        """Report renderer submissions observable through the dense contract."""
+        with self._diagnostics_lock:
+            return TargetDiagnostics(
+                submitted_bytes=self._submitted_bytes,
+                presentations=self._presentations,
+            )
+
+    def _record_submission(self, data: np.ndarray) -> None:
+        with self._diagnostics_lock:
+            self._submitted_bytes += data.nbytes
+
+    def _record_presentation(self) -> None:
+        with self._diagnostics_lock:
+            self._presentations += 1
 
     def layout(self, view: View, pyramid: Pyramid) -> Layout:
         return Layout(
@@ -237,9 +265,11 @@ class DenseTarget:
         if handle is None:
             factory = self.canvas.add_image if ndim == 2 else self.canvas.add_volume
             handle = factory(publication.data, reset_range=False)
+            self._record_submission(publication.data)
             self.handles[publication.level] = handle
         else:
             handle.set_data(publication.data)
+            self._record_submission(publication.data)
         handle.set_clims(_data_clims(publication.data))
         handle.set_world_transform(publication.scales, publication.origins)
         handle.set_visible(True)
@@ -252,6 +282,7 @@ class DenseTarget:
         if publication.level != self._context_level:
             self._mask_context(publication)
         self.canvas.refresh()
+        self._record_presentation()
         if self.on_presented is not None:
             self.on_presented(publication)
 
@@ -269,6 +300,7 @@ class DenseTarget:
         if context is not None:
             if plan.target_level == self._context_level:
                 self.handles[self._context_level].set_data(context.data)
+                self._record_submission(context.data)
                 self._masked_focus = None
             elif (focus := self.publications.get(plan.target_level)) is not None:
                 self._mask_context(focus)
@@ -305,6 +337,7 @@ class DenseTarget:
                     self.pyramid.levels[self._context_level].voxel_to_world,
                 )
         handle.set_data(masked)
+        self._record_submission(masked)
         handle.set_world_transform(context.scales, context.origins)
         self._masked_focus = identity
 
