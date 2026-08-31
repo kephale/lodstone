@@ -5,10 +5,11 @@ the 0.1 alpha series and may change between prereleases.
 
 ## Unreleased
 
+## 0.1.0a2 - 2026-08-30
+
 - Add a SceneX dense target and camera-aware controller based on the generic
   dense-host contract.
 - Report renderer submissions and presentations from every dense-host target.
-
 - Extract the ndv dense adapter into renderer-neutral `DenseCanvas`,
   `DenseHandle`, and `CameraDenseCanvas` protocols.
 - Add reusable `DenseTarget` and `DenseController` implementations while
