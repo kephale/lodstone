@@ -152,7 +152,7 @@ texture residency.
 | napari | [integration PR 34](https://github.com/kephale/napari/pull/34) | Image and Labels; visually validated |
 | ndv + VisPy | [PR 285](https://github.com/pyapp-kit/ndv/pull/285) | Reference ndv backend; visually validated |
 | ndv + PyGFX | [PR 285](https://github.com/pyapp-kit/ndv/pull/285) | Same data path; visually validated |
-| SceneX | Lodstone `SceneXController` | Experimental; 2-D render smoke passed with VisPy and PyGFX |
+| SceneX | Lodstone `SceneXController` | Experimental; PyGFX 2-D/3-D and VisPy 2-D smoke passed; VisPy 3-D blocked by [SceneX #97](https://github.com/pyapp-kit/scenex/issues/97) |
 
 The SceneX spike targets its current development API, which is newer than the
 `scenex==0.0.1` package on PyPI. With a current SceneX checkout installed, attach
