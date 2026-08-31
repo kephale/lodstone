@@ -140,6 +140,13 @@ bricks while a remote Zarr source stores larger chunks; Lodstone coalesces and
 caches the native reads needed to assemble those updates. Multiple layers can
 share one `Runtime` while retaining independent stream state.
 
+Dense viewers can reuse Lodstone's complete coarse-to-fine publication path by
+implementing the small `DenseCanvas` and `DenseHandle` protocols. A host that
+also implements `CameraDenseCanvas` receives debounced camera replanning from
+`DenseController`; ndv's VisPy and PyGFX canvases are the reference
+implementations. See [Dense host integration](docs/dense-hosts.md) for the
+contract and lifecycle.
+
 See [Camera-aware multiscale rendering](docs/rendering-architecture.md) for the
 planner math and the roadmap for metadata culling, sharding, and virtual
 texture residency.
