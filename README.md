@@ -164,6 +164,21 @@ upload and presentation metrics without exposing renderer APIs to the core.
 | napari | [integration PR 34](https://github.com/kephale/napari/pull/34) | Image and Labels; visually validated |
 | ndv + VisPy | `kephale/ndv:lodstone-integration` | Reference ndv backend; visually validated |
 | ndv + PyGFX | `kephale/ndv:lodstone-integration` | Same data path; visually validated |
+| SceneX | Lodstone `SceneXController` | Dense 2-D/3-D streaming for VisPy and PyGFX |
+
+SceneX views can use the same camera-aware dense path without either project
+depending on a particular renderer:
+
+```python
+from lodstone.adapters import SceneXController
+
+controller = SceneXController(view, source)
+controller.update_from_scene()
+```
+
+The controller creates ordinary SceneX `Image` or `Volume` models, replans on
+camera changes, and reports dense data submissions and presentations through
+the standard Lodstone performance snapshot.
 
 Integrations should pin an exact Lodstone prerelease. Compatibility is claimed
 only for combinations covered by native tests and visual smoke tests.
