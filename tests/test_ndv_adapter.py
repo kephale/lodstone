@@ -5,6 +5,7 @@ import time
 import numpy as np
 
 from lodstone import Layout, View
+from lodstone.adapters.dense import CameraDenseCanvas, DenseCanvas, DenseController
 from lodstone.adapters.ndv import NDVController
 from lodstone.testing import SimulatedSource
 
@@ -115,6 +116,12 @@ class PublishingCameraCanvas(CameraCanvas):
 
         handle.set_world_transform = set_world_transform
         return handle
+
+
+def test_ndv_canvas_satisfies_dense_host_contract() -> None:
+    assert isinstance(Canvas(), DenseCanvas)
+    assert isinstance(CameraCanvas(), CameraDenseCanvas)
+    assert NDVController is DenseController
 
 
 def test_ndv_target_presents_dense_camera_phase(ortho_view, wait) -> None:
@@ -331,12 +338,14 @@ def test_ndv_focus_policy_can_be_tuned_and_replanned(ortho_view, wait) -> None:
         plan = controller.set_focus_policy(
             memory_limit=32 * 1024**2,
             focus_depth_weight=0.25,
+            focus_depth_target=0.5,
             lod_bias=1.5,
         )
 
         assert plan is not None
         assert controller.target.memory_limit == 32 * 1024**2
         assert controller.target.focus_depth_weight == 0.25
+        assert controller.target.focus_depth_target == 0.5
         assert controller.stream.planner.lod_bias == 1.5
         assert controller.target.layout(view, source.pyramid) == Layout(
             kind="dense",
@@ -347,6 +356,7 @@ def test_ndv_focus_policy_can_be_tuned_and_replanned(ortho_view, wait) -> None:
             max_axis_extent=512,
             memory_policy="crop",
             focus_depth_weight=0.25,
+            focus_depth_target=0.5,
         )
     finally:
         controller.close()
