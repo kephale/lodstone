@@ -150,8 +150,25 @@ texture residency.
 | --- | --- | --- |
 | ChimeraX OME-Zarr | [PR 22](https://github.com/uermel/chimerax-ome-zarr/pull/22) | 3-D clipmap streaming; visually validated |
 | napari | [integration PR 34](https://github.com/kephale/napari/pull/34) | Image and Labels; visually validated |
-| ndv + VisPy | `kephale/ndv:lodstone-integration` | Reference ndv backend; visually validated |
-| ndv + PyGFX | `kephale/ndv:lodstone-integration` | Same data path; visually validated |
+| ndv + VisPy | [PR 285](https://github.com/pyapp-kit/ndv/pull/285) | Reference ndv backend; visually validated |
+| ndv + PyGFX | [PR 285](https://github.com/pyapp-kit/ndv/pull/285) | Same data path; visually validated |
+| SceneX | Lodstone `SceneXController` | Experimental; PyGFX 2-D/3-D and VisPy 2-D smoke passed; VisPy 3-D blocked by [SceneX #97](https://github.com/pyapp-kit/scenex/issues/97) |
+
+The SceneX spike targets its current development API, which is newer than the
+`scenex==0.0.1` package on PyPI. With a current SceneX checkout installed, attach
+a `scenex.View` to a canvas and stream its camera directly:
+
+```python
+from lodstone.adapters import SceneXController
+
+controller = SceneXController(view, source)
+controller.update_from_scene()
+```
+
+The adapter creates ordinary SceneX `Image` or `Volume` models and uses SceneX's
+main-thread dispatcher. Camera transforms, projections, view layout, and canvas
+size changes trigger debounced replanning. SceneX remains independent of
+Lodstone, and Lodstone does not import SceneX unless this adapter is used.
 
 Integrations should pin an exact Lodstone prerelease. Compatibility is claimed
 only for combinations covered by native tests and visual smoke tests.

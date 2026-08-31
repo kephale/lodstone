@@ -3,6 +3,12 @@
 Lodstone follows semantic versioning. Viewer adapters remain provisional during
 the 0.1 alpha series and may change between prereleases.
 
+## Unreleased
+
+- Add an experimental SceneX dense target and camera-aware controller.
+- Add a protected dense-target factory hook so renderer-neutral controllers can
+  reuse the ndv adapter's stream lifecycle and camera debounce behavior.
+
 ## 0.1.0a1 - 2026-08-30
 
 - Improve perspective camera-aware level selection by sampling visible depth.
