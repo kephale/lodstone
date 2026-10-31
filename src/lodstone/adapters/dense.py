@@ -131,6 +131,7 @@ class DenseTarget:
         focus_depth_weight: float = 0.5,
         focus_depth_target: float | None = None,
         fit_on_first_publication: bool = True,
+        clims: tuple[float, float] | None = None,
         on_presented: Callable[[DensePublication], None] | None = None,
     ) -> None:
         self.canvas = canvas
@@ -149,6 +150,12 @@ class DenseTarget:
         self.focus_depth_target = focus_depth_target
         self.fit_on_first_publication = fit_on_first_publication
         self.publishing = False
+        if clims is not None:
+            low, high = float(clims[0]), float(clims[1])
+            if not (np.isfinite(low) and np.isfinite(high) and low < high):
+                raise ValueError("clims must be finite with low below high")
+            clims = (low, high)
+        self.clims = clims
         self.resident = ResidentArrays(pyramid, compose=True)
         self.handles: dict[int, DenseHandle] = {}
         self.publications: dict[int, DensePublication] = {}
@@ -287,7 +294,9 @@ class DenseTarget:
         else:
             handle.set_data(publication.data)
             self._record_submission(publication.data)
-        handle.set_clims(_data_clims(publication.data))
+        handle.set_clims(
+            _data_clims(publication.data) if self.clims is None else self.clims
+        )
         handle.set_world_transform(publication.scales, publication.origins)
         handle.set_visible(True)
         self.publications[publication.level] = publication
@@ -475,6 +484,7 @@ class DenseController:
         focus_depth_weight: float = 0.5,
         focus_depth_target: float | None = None,
         fit_on_first_publication: bool = True,
+        clims: tuple[float, float] | None = None,
         on_presented: Callable[[DensePublication], None] | None = None,
         on_targeted: Callable[[Plan], None] | None = None,
         camera_debounce_ms: int = 180,
@@ -506,6 +516,7 @@ class DenseController:
             focus_depth_weight=focus_depth_weight,
             focus_depth_target=focus_depth_target,
             fit_on_first_publication=fit_on_first_publication,
+            clims=clims,
             on_presented=on_presented,
         )
         stream_options.setdefault(

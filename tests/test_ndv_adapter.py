@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 
 import numpy as np
+import pytest
 
 from lodstone import Layout, View
 from lodstone.adapters.dense import CameraDenseCanvas, DenseCanvas, DenseController
@@ -286,6 +287,29 @@ def test_dense_target_can_keep_the_host_camera(ortho_view, wait) -> None:
         assert canvas.range_resets == 0
     finally:
         controller.close()
+
+
+def test_dense_target_applies_fixed_clims(ortho_view, wait) -> None:
+    data = np.arange(64, dtype=np.uint16).reshape(8, 8)
+    source = SimulatedSource([data], chunks=[(4, 4)])
+    canvas = Canvas()
+    controller = NDVController(canvas, source, clims=(10.0, 20.0))
+    try:
+        controller.update(ortho_view(data.shape, viewport=(64, 64)))
+        wait(lambda: controller.stream.status.state == "complete")
+        assert canvas.handle.clims == (10.0, 20.0)
+    finally:
+        controller.close()
+
+
+@pytest.mark.parametrize(
+    "clims",
+    [(5.0, 5.0), (9.0, 1.0), (float("nan"), 1.0), (0.0, float("inf"))],
+)
+def test_dense_target_rejects_unusable_clims(clims) -> None:
+    source = SimulatedSource([np.ones((16, 16), np.uint8)], chunks=[(8, 8)])
+    with pytest.raises(ValueError, match="clims"):
+        NDVController(Canvas(), source, clims=clims)
 
 
 def test_ndv_camera_updates_are_debounced_off_interaction_thread(ortho_view, wait):
