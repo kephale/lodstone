@@ -39,6 +39,9 @@ such as `on_presented`, is a real change and replans.
 `DenseTarget` fits the canvas to the data on its first publication. A host that
 has already placed its camera passes `fit_on_first_publication=False`.
 
+Contrast limits follow each published array by default. Pass `clims=(low, high)`
+to hold them fixed across levels and viewers.
+
 ## Lifecycle
 
 The host owns native visuals; `DenseTarget` owns the handles it creates. Closing
