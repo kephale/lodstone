@@ -158,6 +158,10 @@ upload and presentation metrics without exposing renderer APIs to the core.
 
 ## Viewer status
 
+Experimental geometry support is being developed separately from the array
+integrations: see [Zarr Vectors mesh streaming](docs/mesh-streaming.md) for the
+companion reader branch, runnable PyGFX example, memory limits and exclusions.
+
 | Viewer | Integration | Status |
 | --- | --- | --- |
 | ChimeraX OME-Zarr | [PR 22](https://github.com/uermel/chimerax-ome-zarr/pull/22) | 3-D clipmap streaming; visually validated |

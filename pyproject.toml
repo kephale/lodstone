@@ -26,6 +26,8 @@ dependencies = ["numpy>=1.26"]
 zarr = ["zarr>=3"]
 datasets = ["zarr>=3"]
 ome-zarr = ["zarr>=3", "fsspec>=2024.2", "aiohttp>=3.10"]
+mesh = ["zarr-vectors>=0.9"]
+mesh-demo = ["lodstone[mesh]", "pygfx>=0.17", "rendercanvas>=2.7", "glfw>=2", "imageio>=2"]
 test = ["dask[array]>=2022.1.1", "pytest>=8", "zarr>=3"]
 
 [dependency-groups]
