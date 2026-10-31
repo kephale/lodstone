@@ -18,7 +18,8 @@ the two-level Zarr Vectors store. Constructing the constrained coarse meshes
 can take a minute or two, depending on CPU speed. Progress is printed per neuron.
 Later launches verify and reuse the cache. Python and
 package versions are declared by the launcher; no existing project environment
-is needed.
+is needed. The checkout's `biological-demo` extra also installs the same fork
+reader automatically; see [development installation](mesh-streaming.md#install-lodstone-with-mesh-support).
 
 | LOD 0: fine | LOD 1: coarse |
 | --- | --- |

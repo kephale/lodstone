@@ -660,6 +660,7 @@ test = [
     { name = "pytest" },
     { name = "zarr", version = "3.1.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "zarr", version = "3.3.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "zarr-vectors" },
 ]
 zarr = [
     { name = "zarr", version = "3.1.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
@@ -681,6 +682,7 @@ requires-dist = [
     { name = "glfw", marker = "extra == 'mesh-demo'", specifier = ">=2" },
     { name = "imageio", marker = "extra == 'mesh-demo'", specifier = ">=2" },
     { name = "lodstone", extras = ["mesh"], marker = "extra == 'mesh-demo'" },
+    { name = "lodstone", extras = ["mesh"], marker = "extra == 'test'" },
     { name = "lodstone", extras = ["mesh-demo"], marker = "extra == 'biological-demo'" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "psutil", marker = "extra == 'biological-demo'", specifier = ">=7" },
@@ -693,7 +695,7 @@ requires-dist = [
     { name = "zarr", marker = "extra == 'ome-zarr'", specifier = ">=3" },
     { name = "zarr", marker = "extra == 'test'", specifier = ">=3" },
     { name = "zarr", marker = "extra == 'zarr'", specifier = ">=3" },
-    { name = "zarr-vectors", marker = "extra == 'mesh'", specifier = ">=0.9" },
+    { name = "zarr-vectors", marker = "extra == 'mesh'", git = "https://github.com/kephale/zarr-vectors-py?rev=40bd38045e0c23019c5c88a54824b89f89243e4e" },
 ]
 provides-extras = ["zarr", "datasets", "ome-zarr", "mesh", "mesh-demo", "biological-demo", "test"]
 
@@ -2046,18 +2048,14 @@ wheels = [
 
 [[package]]
 name = "zarr-vectors"
-version = "0.9.2"
-source = { registry = "https://pypi.org/simple" }
+version = "0.9.3.dev5+g40bd38045"
+source = { git = "https://github.com/kephale/zarr-vectors-py?rev=40bd38045e0c23019c5c88a54824b89f89243e4e#40bd38045e0c23019c5c88a54824b89f89243e4e" }
 dependencies = [
     { name = "numcodecs" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "zarr", version = "3.1.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "zarr", version = "3.3.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/4f/2c/2d2ef213537f77e7e7a3b125b826dc6b45ce8d1897d42e15c373ab654e32/zarr_vectors-0.9.2.tar.gz", hash = "sha256:1cc92adf9233026e7748af6efdddba2d12a6f3cf668c74c63b3126cd9ddebcc4", size = 4975190, upload-time = "2026-09-21T17:07:33.58Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/cf/4b/bab59bada24f36ae91a8a1f86bdb68bc9269adfff3527477e93391a134cb/zarr_vectors-0.9.2-py3-none-any.whl", hash = "sha256:fdf909ee98b5e6928a851332067c6ff6eedb83fdd74325e1aef50d120fb0a2af", size = 557829, upload-time = "2026-09-21T17:07:31.89Z" },
 ]
 
 [[package]]

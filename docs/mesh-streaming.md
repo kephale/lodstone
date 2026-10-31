@@ -24,32 +24,46 @@ For images instead of a window, append `--offscreen mesh-renders` to the command
 This saves the two PNGs and metrics in a `mesh-renders` folder. The built-in
 fixture is a synthetic sphere, not a biological dataset.
 
-## Install the two branches
+## Install Lodstone with mesh support
 
-Clone the repositories next to each other:
+The mesh extras depend on the tested commit of Kyle's Zarr Vectors fork:
+[`40bd38045e0c23019c5c88a54824b89f89243e4e`](https://github.com/kephale/zarr-vectors-py/commit/40bd38045e0c23019c5c88a54824b89f89243e4e),
+on branch `feat/bounded-mesh-reads`. This is an immutable Git dependency in
+package metadata as well as `uv.lock`; both pip and uv install the same reader.
+Lodstone can merge and install without waiting for the upstream reader PR.
 
 ```bash
-git clone --branch feat/bounded-mesh-reads https://github.com/kephale/zarr-vectors-py.git
 git clone --branch feat/zarr-vectors-mesh-streaming https://github.com/kephale/lodstone.git
 cd lodstone
-uv sync --extra mesh-demo --group dev
-uv pip install --python .venv/bin/python -e ../zarr-vectors-py
-.venv/bin/python examples/zarr_vectors_mesh.py
+uv sync --frozen --extra mesh-demo --group dev
+uv run --frozen --extra mesh-demo examples/zarr_vectors_mesh.py
 ```
 
-The local editable install is necessary until `building.MeshReader` is accepted
-and released upstream. A released `zarr-vectors` without that API fails with an
-explicit installation message. Running `uv sync` again may replace the editable
-install; repeat the final installation command afterward.
-
-The locally validated integration uses reader revision
-`40bd38045e0c23019c5c88a54824b89f89243e4e`. To reproduce that revision instead
-of an editable checkout, use:
+For the biological neuron demo:
 
 ```bash
-uv pip install --python .venv/bin/python \
-  "zarr-vectors @ git+https://github.com/kephale/zarr-vectors-py@40bd38045e0c23019c5c88a54824b89f89243e4e"
+uv sync --frozen --extra biological-demo
+uv run --frozen --extra biological-demo -m lodstone.adapters.biological_mesh_demo
 ```
+
+Or install this checkout with pip:
+
+```bash
+pip install -e ".[mesh]"
+# Use .[mesh-demo] or .[biological-demo] to include the corresponding viewer.
+```
+
+No editable sibling checkout or manual dependency override is required. The base
+package still only requires NumPy. The `test` extra includes mesh support, so the
+existing CI test matrix exercises the reader integration rather than skipping it.
+The renderer and scientific demo dependencies remain optional.
+
+This is a temporary source-install dependency. Before the next PyPI release,
+replace the Git reference with an upstream version that provides `MeshReader`:
+[PyPI rejects distributions containing direct-reference dependencies](https://github.com/pypi/warehouse/blob/main/warehouse/forklift/metadata.py).
+The upstream reader contribution remains independent of Lodstone's runtime and
+renderer code. Moving the fork branch does not change this pin; a future update
+must explicitly change the commit and regenerate the lockfile.
 
 The default example generates two explicit tessellations of one analytic sphere.
 It does not claim to validate a scientific mesh or a decimation algorithm. Drag

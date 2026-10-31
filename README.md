@@ -156,6 +156,22 @@ For comparable measurements across hosts and rendering backends, see
 source, delivered, staging, and host-dispatch work; render targets may add GPU
 upload and presentation metrics without exposing renderer APIs to the core.
 
+## Mesh development installs
+
+The development mesh extras use a fixed commit of
+[kephale/zarr-vectors-py](https://github.com/kephale/zarr-vectors-py/tree/feat/bounded-mesh-reads)
+until its ownership reader is released upstream:
+
+```bash
+pip install -e ".[mesh]"             # headless mesh streaming
+uv sync --frozen --extra biological-demo  # neuron viewer and scientific tools
+```
+
+Both package metadata and `uv.lock` pin the tested reader; no sibling checkout
+or manual override is needed. Core installs still only require NumPy. Replace
+the Git dependency with a released reader before the next PyPI publication.
+See [mesh installation details](docs/mesh-streaming.md).
+
 ## Viewer status
 
 Experimental geometry support is being developed separately from the array
