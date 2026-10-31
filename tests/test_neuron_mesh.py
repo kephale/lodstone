@@ -100,7 +100,7 @@ def test_public_neuron_fixture_streams_every_supplied_face():
     from lodstone.biological_mesh import verify_reference
     from lodstone.neuron_mesh import load_neuron_meshes
 
-    report = json.loads((Path(cache) / "surfaces-v2-smooth20/report.json").read_text())
+    report = json.loads((Path(cache) / "surfaces-v4-smooth20/report.json").read_text())
     meshes, _ = load_neuron_meshes(Path(cache))
     assert {i for i, _, _ in meshes} == {o["label_id"] for o in report["objects"]}
     assert report["coverage"]["omitted_labels"] == []
@@ -108,6 +108,16 @@ def test_public_neuron_fixture_streams_every_supplied_face():
     result = verify_reference(report)
     assert result["streamed_faces"] == sum(len(f) for _, _, f in meshes)
     assert result["declared_smoothing_regenerated"]
+    coarse = verify_reference(report, level=1)
+    assert coarse["streamed_faces"] == sum(
+        o["coarse"]["faces"] for o in report["objects"]
+    )
+    assert coarse["streamed_faces"] < result["streamed_faces"] * 0.7
+    for item in report["objects"]:
+        assert item["coarse_construction"]["protected_faces_exact"]
+        assert item["coarse_construction"]["source_face_map_certified"]
+        for key in ("components", "euler", "boundary_edges", "nonmanifold_edges"):
+            assert item["fine"][key] == item["coarse"][key]
 
 
 @pytest.mark.parametrize("level_count", [1, 2])

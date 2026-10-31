@@ -359,7 +359,7 @@ def prepare_biological_mesh(cache: Path, *, max_objects: int = 6) -> dict:
     return report
 
 
-def verify_reference(report: dict) -> dict:
+def verify_reference(report: dict, *, level: int = 0) -> dict:
     """Compare the multiset of oriented streamed triangles to the retained mesh."""
     building = import_module("zarr_vectors.building")
 
@@ -372,57 +372,77 @@ def verify_reference(report: dict) -> dict:
 
     expected = []
     from_neuron_mesh = report.get("sample") == "hemibrain"
-    if report.get("sample") == "hemibrain":
-        from .neuron_mesh import load_neuron_meshes
+    if level not in (0, 1):
+        raise ValueError("reference verification supports fine0 and coarse1")
+    reference_path = (
+        report["reference_path"] if level == 0 else report["coarse_reference_path"]
+    )
+    if (
+        level == 1
+        and sha256(Path(reference_path).read_bytes())
+        != report["coarse_reference_sha256"]
+    ):
+        raise ValueError("coarse reference checksum mismatch")
+    source_geometry = {}
+    if level == 0:
+        if report.get("sample") == "hemibrain":
+            from .neuron_mesh import load_neuron_meshes
 
-        meshes, _ = load_neuron_meshes(Path(report["source_cache"]))
-        source_geometry = {i: (v, f) for i, v, f in meshes}
-    else:
-        with np.load(report["inputs_path"]) as inputs:
-            labels = inputs["labels"]
-        spacing = np.asarray(report["spacing_zyx_um"])
-        origin = np.asarray(report["origin_xyz_um"])[::-1]
-        source_geometry = {
-            item["label_id"]: label_surface(labels == item["label_id"], spacing, origin)
-            for item in report["objects"]
-        }
-    with np.load(report["reference_path"]) as original:
+            meshes, _ = load_neuron_meshes(Path(report["source_cache"]))
+            source_geometry = {i: (v, f) for i, v, f in meshes}
+        else:
+            with np.load(report["inputs_path"]) as inputs:
+                labels = inputs["labels"]
+            spacing = np.asarray(report["spacing_zyx_um"])
+            origin = np.asarray(report["origin_xyz_um"])[::-1]
+            source_geometry = {
+                item["label_id"]: label_surface(
+                    labels == item["label_id"], spacing, origin
+                )
+                for item in report["objects"]
+            }
+    with np.load(reference_path) as original:
         for item in report["objects"]:
             object_id = item["label_id"]
-            regenerated_v, regenerated_f = source_geometry[object_id]
-            if report.get("smoothing"):
-                from .neuron_mesh import smooth_surface
+            if level == 0:
+                regenerated_v, regenerated_f = source_geometry[object_id]
+                if report.get("smoothing"):
+                    from .neuron_mesh import smooth_surface
 
-                regenerated_v, _ = smooth_surface(
-                    regenerated_v,
-                    regenerated_f,
-                    **report["smoothing"],
+                    regenerated_v, _ = smooth_surface(
+                        regenerated_v,
+                        regenerated_f,
+                        **report["smoothing"],
+                    )
+                np.testing.assert_array_equal(
+                    original[f"vertices_{object_id}"], regenerated_v
                 )
-            np.testing.assert_array_equal(
-                original[f"vertices_{object_id}"], regenerated_v
-            )
-            np.testing.assert_array_equal(original[f"faces_{object_id}"], regenerated_f)
+                np.testing.assert_array_equal(
+                    original[f"faces_{object_id}"], regenerated_f
+                )
             expected.extend(
                 keys(original[f"vertices_{object_id}"], original[f"faces_{object_id}"])
             )
     actual = []
-    with building.MeshReader(report["mesh_path"], level=0) as reader:
+    with building.MeshReader(report["mesh_path"], level=level) as reader:
         owners = len(reader.chunks)
         for chunk in reader.chunks:
             result = reader.read([chunk.key], max_bytes=64 << 20)
             actual.extend(keys(result["vertices"], result["faces"]))
     expected, actual = sorted(expected), sorted(actual)
     if actual != expected:
-        raise ValueError("streamed fine geometry differs from the retained reference")
+        raise ValueError("streamed geometry differs from the retained reference")
     return {
+        "level": level,
         "reference_faces": len(expected),
         "streamed_faces": len(actual),
         "owner_cells": owners,
         "oriented_triangle_sha256": sha256(b"".join(actual)),
         "exact_after_declared_float32_quantization": True,
-        "retained_reference_matches_label_extraction": not from_neuron_mesh,
-        "retained_reference_matches_source_geometry": True,
-        "declared_smoothing_regenerated": bool(report.get("smoothing")),
+        "retained_reference_matches_label_extraction": not from_neuron_mesh
+        and level == 0,
+        "retained_reference_matches_source_geometry": level == 0,
+        "declared_smoothing_regenerated": bool(report.get("smoothing")) and level == 0,
     }
 
 

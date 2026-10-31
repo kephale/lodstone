@@ -11,7 +11,6 @@ import numpy as np
 from .biological_mesh import (
     _fetch,
     sha256,
-    surface_error_bound,
     topology,
     write_surface_levels,
 )
@@ -220,11 +219,11 @@ def load_neuron_meshes(cache: Path) -> tuple[list, dict]:
 def prepare_neuron_mesh(cache: Path, *, smooth_iterations: int = 20) -> dict:
     """Prepare all five neuron meshes with no additional spatial clipping."""
     meshes, manifest = load_neuron_meshes(cache)
-    output = cache / f"surfaces-v2-smooth{smooth_iterations}"
+    output = cache / f"surfaces-v4-smooth{smooth_iterations}"
     report_path = output / "report.json"
     if report_path.exists():
         report = json.loads(report_path.read_text())
-        for name in ("reference", "raw_reference"):
+        for name in ("reference", "raw_reference", "coarse_reference"):
             if (
                 sha256(Path(report[f"{name}_path"]).read_bytes())
                 != report[f"{name}_sha256"]
@@ -235,13 +234,14 @@ def prepare_neuron_mesh(cache: Path, *, smooth_iterations: int = 20) -> dict:
                 raise ValueError(f"cached mesh checksum mismatch: {relative}")
         return report
     output.mkdir(parents=True, exist_ok=True)
-    simplifier = import_module("fast_simplification")
+    from .mesh_simplification import constrained_coarse_mesh
+
     smoothing = {
         "iterations": smooth_iterations,
         "max_displacement_um": 0.15,
         "max_relative_volume_change": 0.05,
     }
-    reference, raw_reference, objects = {}, {}, []
+    reference, raw_reference, coarse_reference, objects = {}, {}, {}, []
     levels: list[list] = [[], []]
     for object_id, v, f in meshes:
         raw_reference[f"vertices_{object_id}"], raw_reference[f"faces_{object_id}"] = (
@@ -250,19 +250,19 @@ def prepare_neuron_mesh(cache: Path, *, smooth_iterations: int = 20) -> dict:
         )
         sv, change = smooth_surface(v, f, **smoothing)
         fine = topology(sv, f)
-        cv, cf, reduction = sv.copy(), f.copy(), 0.0
-        for candidate_reduction in (0.7, 0.4, 0.15):
-            candidate_v, candidate_f = simplifier.simplify(
-                sv.copy(), f.copy(), target_reduction=candidate_reduction
-            )
-            coarse = topology(candidate_v, candidate_f)
-            if len(candidate_f) and all(
-                coarse[k] == fine[k]
-                for k in ("components", "euler", "boundary_edges", "nonmanifold_edges")
-            ):
-                cv, cf, reduction = candidate_v, candidate_f, candidate_reduction
-                break
+        print(
+            f"Preparing constrained coarse neuron {object_id} ({len(objects) + 1}/{len(meshes)})",
+            flush=True,
+        )
+        cv, cf, decimation = constrained_coarse_mesh(
+            sv, f, max_error=0.5, target_reduction=0.6
+        )
+        reduction = decimation["actual_reduction"]
         reference[f"vertices_{object_id}"], reference[f"faces_{object_id}"] = sv, f
+        (
+            coarse_reference[f"vertices_{object_id}"],
+            coarse_reference[f"faces_{object_id}"],
+        ) = cv, cf
         levels[0].append((sv, f, object_id))
         levels[1].append((cv, cf, object_id))
         objects.append(
@@ -279,11 +279,15 @@ def prepare_neuron_mesh(cache: Path, *, smooth_iterations: int = 20) -> dict:
                 "coarse_float32_quantization_um": float(
                     np.linalg.norm(cv - cv.astype(np.float32), axis=1).max()
                 ),
-                **surface_error_bound(sv, f, cv, cf),
+                "surface_distance_upper_bound_um": decimation[
+                    "surface_distance_upper_bound_um"
+                ],
+                "coarse_construction": decimation,
             }
         )
     np.savez_compressed(output / "reference.npz", **reference)
     np.savez_compressed(output / "raw-reference.npz", **raw_reference)
+    np.savez_compressed(output / "coarse-reference.npz", **coarse_reference)
     has_safe_coarse = any(o["target_reduction"] > 0 for o in objects)
     if not has_safe_coarse:
         levels = levels[:1]
@@ -299,11 +303,15 @@ def prepare_neuron_mesh(cache: Path, *, smooth_iterations: int = 20) -> dict:
         "mesh_path": str(root),
         "reference_path": str(output / "reference.npz"),
         "raw_reference_path": str(output / "raw-reference.npz"),
+        "coarse_reference_path": str(output / "coarse-reference.npz"),
+        "coarse_reference_sha256": sha256(
+            (output / "coarse-reference.npz").read_bytes()
+        ),
         "reference_sha256": sha256((output / "reference.npz").read_bytes()),
         "raw_reference_sha256": sha256((output / "raw-reference.npz").read_bytes()),
         "objects": objects,
         "smoothing": smoothing,
-        "lod_policy": "Topology-preserving coarse candidates only; fine-only when none pass",
+        "lod_policy": "Constrained regular-edge collapses; source singularity neighborhoods retained exactly, topology checks and source-face-map error certificate",
         "has_safe_coarse": has_safe_coarse,
         "bounds_xyz_um": [vertices.min(axis=0).tolist(), vertices.max(axis=0).tolist()],
         "coverage": {
@@ -326,7 +334,7 @@ def prepare_neuron_mesh(cache: Path, *, smooth_iterations: int = 20) -> dict:
             for p in sorted(root.rglob("*"))
             if p.is_file()
         },
-        "notes": "All supplied faces retained at fine LOD with original face indices. Coordinates converted from 8 nm units to micrometers. Smoothing is bounded preprocessing before chunking, with per-component volume and local face-orientation guards. This does not establish absence of self-intersection or prove biological thin-process accuracy. Source meshes can already contain nonmanifold edges, disconnected pieces or truncated arbors; their topology diagnostics are retained, not repaired silently. LOD errors are relative to the retained smoothed reference.",
+        "notes": "All supplied faces retained at fine LOD with original face indices. Coordinates converted from 8 nm units to micrometers. Smoothing is bounded preprocessing before chunking, with per-component volume and local face-orientation guards. This does not establish absence of self-intersection or prove biological thin-process accuracy. Coarse LOD simplifies regular regions while fixing source singularity neighborhoods. A certified source-face map bounds continuous surface displacement by 0.5 micrometers before float32 quantization. Source meshes can already contain nonmanifold edges, disconnected pieces or truncated arbors; their topology diagnostics are retained, not repaired silently. LOD errors are relative to the retained smoothed reference.",
     }
     report_path.write_text(json.dumps(report, indent=2))
     print(

@@ -14,17 +14,24 @@ collection, not a whole-brain dataset or proof that each biological arbor is com
 The viewer labels that coverage explicitly.
 
 The first launch downloads about **3.49 MB** of pinned source files and prepares
-the Zarr Vectors store. Later launches verify and reuse the cache. Python and
+the two-level Zarr Vectors store. Constructing the constrained coarse meshes
+can take a minute or two, depending on CPU speed. Progress is printed per neuron.
+Later launches verify and reuse the cache. Python and
 package versions are declared by the launcher; no existing project environment
 is needed.
 
-| Smoothed streamed neurons | Original source surfaces |
+| LOD 0: fine | LOD 1: coarse |
 | --- | --- |
-| ![Smoothed neuron surfaces](../img/hemibrain-neurons-smoothed.png) | ![Original neuron surfaces](../img/hemibrain-neurons-raw.png) |
+| ![Fine neuron surfaces](../img/hemibrain-neurons-smoothed.png) | ![Coarse neuron surfaces](../img/hemibrain-neurons-coarse.png) |
 
 ## Controls
 
 - Drag to orbit; scroll to zoom into the branching arbors.
+- **L** cycles **Auto → forced LOD 1 → forced LOD 0 → Auto**.
+  The overlay identifies automatic versus forced mode and shows both levels.
+  The initial view may select LOD 0; zooming out selects LOD 1 when its projected
+  error fits the 2-pixel threshold. The conservative selector checks all visible
+  ownership-bound corners, so it can retain fine geometry longer near the camera.
 - **S** switches between original source surfaces and the streamed smoothed surface.
 - **R** switches between the retained smoothed reference and the streamed surface.
 - **B** toggles conservative chunk ownership bounds; **M** toggles visible surfaces.
@@ -51,10 +58,26 @@ open/nonmanifold source is only a diagnostic, not a reliable biological volume.
 
 The original files already contain disconnected pieces, duplicate triangles,
 and nonmanifold edges. Their topology is recorded without silently repairing it.
-None of the tested coarse simplifications preserved the original component,
-Euler, boundary-edge and nonmanifold-edge counts. Consequently **this neuron
-example streams fine resolution only**; it does not present duplicate geometry
-as a meaningful second LOD. The on-screen status says so.
+The new coarse construction protects source singularity neighborhoods: open and
+nonmanifold edges, duplicate faces and disconnected vertex links. It collapses
+only regular interior edges, checking connectivity and local face orientation
+at each step. Protected faces retain their exact coordinates and winding.
+Component count, Euler characteristic and boundary/nonmanifold-edge counts
+match the fine source per neuron. These checks do not prove absence of global
+self-intersections or establish biological thin-process accuracy.
+
+- **LOD 0:** 183,763 triangles, retaining every supplied face after smoothing.
+- **LOD 1:** 96,951 triangles, **47.2% fewer**.
+- The continuous-surface displacement bound is below **0.5 µm**, relative to
+  the **smoothed fine** reference, including float32 storage quantization.
+
+The bound uses the actual original-to-coarse vertex map: every fine triangle
+maps to a retained coarse triangle or one of its edges/vertices, and every
+coarse triangle has a fine preimage. Maximum corresponding-vertex displacement
+therefore bounds both continuous surfaces. This is a certificate for the
+constructed meshes, not just a nearest-vertex or RMS estimate. It does not bound
+an unknown biological surface. Plain unconstrained simplification changed the
+source topology; those candidates remain rejected.
 
 The [Nessys sample](nessys-mesh.md) remains available for real coarse/fine LOD,
 paired fluorescence and the original diagnostics:
@@ -88,6 +111,10 @@ fine reference. The check regenerates that reference from the pinned source
 files and smoothing settings, then compares the oriented triangle multiset
 against every streamed ownership chunk after declared float32 quantization.
 This checks missing faces, duplicates and winding across chunk boundaries.
+LOD 1 is independently checked against its retained coarse reference as well.
+The camera replay verifies forced coarse/fine phases and automatic fine/coarse
+selection after zooming. Synthetic controls cover a one-voxel bridge, duplicate
+faces, an open boundary, and a bow-tie vertex beside simplifiable geometry.
 
 [Measured source, smoothing and reference checks](../examples/data/hemibrain-reference-validation.json).
 

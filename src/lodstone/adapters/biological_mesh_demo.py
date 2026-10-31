@@ -248,10 +248,11 @@ def main() -> None:
             if neuron_sample
             else "RETAINED REFERENCE"
         )
+        lod_status = f"{'AUTO' if selected_level is None else 'FORCED'} → LOD {status.displayed_level} of {len(source.levels)} levels"
         text.set_text(
             f"{title} — micrometers\n"
             f"{coverage_text} | {treatment}\n"
-            f"{status.state.upper()} | {f'{reference_label} (not streamed)' if reference_visible else f'LOD {status.displayed_level}'} | phase {status.phase_chunks_done}/{status.phase_chunks_total}\n"
+            f"{status.state.upper()} | {f'{reference_label} (not streamed)' if reference_visible else lod_status} | phase {status.phase_chunks_done}/{status.phase_chunks_total}\n"
             f"Mesh cache {status.cache_bytes / (1 << 20):.2f}/{args.memory_mib:g} MiB | active mesh buffers {active_buffer_bytes / (1 << 20):.2f} MiB\n"
             f"Store {io.bytes_returned / (1 << 20):.2f} MiB ({io.metadata_bytes / (1 << 20):.2f} metadata) | {io.requests} store reads\n"
             f"Cache hits {status.cache_hits} | evictions {status.evictions} | stale reads {status.stale_reads}\n"
@@ -292,6 +293,7 @@ def main() -> None:
             iio = import_module("imageio.v3")
             evidence = []
             for level in reversed(range(len(source.levels))):
+                selected_level = level
                 stream.update(snapshot(), level=level)
                 try:
                     stream.wait(timeout=120)
@@ -337,6 +339,7 @@ def main() -> None:
                 )
                 show_reference(raw=True)
             if args.diagnostic_replay:
+                selected_level = None
                 replay = []
                 source.io.reset()
                 # Warm replay must reuse decoded fragments, not merely OS cache.
