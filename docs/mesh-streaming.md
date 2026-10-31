@@ -36,7 +36,7 @@ Lodstone can merge and install without waiting for the upstream reader PR.
 git clone --branch feat/zarr-vectors-mesh-streaming https://github.com/kephale/lodstone.git
 cd lodstone
 uv sync --frozen --extra mesh-demo --group dev
-uv run --frozen --extra mesh-demo examples/zarr_vectors_mesh.py
+uv run --frozen --extra mesh-demo python examples/zarr_vectors_mesh.py
 ```
 
 For the biological neuron demo:
