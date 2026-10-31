@@ -1,0 +1,207 @@
+{
+  "study": "IDR0062 / Nessys, image 6001240",
+  "authors": "Blin G, Sadurska D, Portero Migueles R, Chen N, Watson JA, Lowell S",
+  "citation": "Blin et al. (2019), PLOS Biology 17(8):e3000388",
+  "doi": "https://doi.org/10.1371/journal.pbio.3000388",
+  "catalog": "https://idr.github.io/ome-ngff-samples/",
+  "license": "CC BY 4.0",
+  "license_url": "https://creativecommons.org/licenses/by/4.0/",
+  "source": "https://livingobjects.ebi.ac.uk/idr/zarr/v0.4/idr0062A/6001240.zarr",
+  "interpretation": "Meshes derived from supplied instance labels, not new biological ground truth.",
+  "objects": [
+    {
+      "label_id": 2,
+      "fine": {
+        "vertices": 7554,
+        "faces": 15104,
+        "components": 1,
+        "euler": 2,
+        "boundary_edges": 0,
+        "nonmanifold_edges": 0
+      },
+      "coarse": {
+        "vertices": 2267,
+        "faces": 4530,
+        "components": 1,
+        "euler": 2,
+        "boundary_edges": 0,
+        "nonmanifold_edges": 0
+      },
+      "target_reduction": 0.7,
+      "label_isosurface_residual": 2.1316282072803006e-14,
+      "coordinate_round_trip_error_voxels": 1.971549323798172e-14,
+      "fine_float32_quantization_um": 2.8017704412444967e-06,
+      "coarse_float32_quantization_um": 2.7047298738304095e-06,
+      "sampled_vertex_distance_max_um": 1.1097441640924735,
+      "surface_distance_upper_bound_um": 4.810079942651061
+    },
+    {
+      "label_id": 6,
+      "fine": {
+        "vertices": 6992,
+        "faces": 13980,
+        "components": 1,
+        "euler": 2,
+        "boundary_edges": 0,
+        "nonmanifold_edges": 0
+      },
+      "coarse": {
+        "vertices": 2099,
+        "faces": 4194,
+        "components": 1,
+        "euler": 2,
+        "boundary_edges": 0,
+        "nonmanifold_edges": 0
+      },
+      "target_reduction": 0.7,
+      "label_isosurface_residual": 3.197442310920451e-14,
+      "coordinate_round_trip_error_voxels": 0.0,
+      "fine_float32_quantization_um": 2.7839927572392303e-06,
+      "coarse_float32_quantization_um": 2.6937015687457396e-06,
+      "sampled_vertex_distance_max_um": 1.2330278557105738,
+      "surface_distance_upper_bound_um": 4.276500754114478
+    },
+    {
+      "label_id": 36,
+      "fine": {
+        "vertices": 7041,
+        "faces": 14098,
+        "components": 2,
+        "euler": -8,
+        "boundary_edges": 0,
+        "nonmanifold_edges": 0
+      },
+      "coarse": {
+        "vertices": 2106,
+        "faces": 4228,
+        "components": 2,
+        "euler": -8,
+        "boundary_edges": 0,
+        "nonmanifold_edges": 0
+      },
+      "target_reduction": 0.7,
+      "label_isosurface_residual": 0.12500000000000533,
+      "coordinate_round_trip_error_voxels": 3.943098647596344e-14,
+      "fine_float32_quantization_um": 4.492642088758986e-06,
+      "coarse_float32_quantization_um": 4.36226542774012e-06,
+      "sampled_vertex_distance_max_um": 1.1912951168378987,
+      "surface_distance_upper_bound_um": 3.9122384985678846
+    },
+    {
+      "label_id": 1,
+      "fine": {
+        "vertices": 7282,
+        "faces": 14560,
+        "components": 1,
+        "euler": 2,
+        "boundary_edges": 0,
+        "nonmanifold_edges": 0
+      },
+      "coarse": {
+        "vertices": 2186,
+        "faces": 4368,
+        "components": 1,
+        "euler": 2,
+        "boundary_edges": 0,
+        "nonmanifold_edges": 0
+      },
+      "target_reduction": 0.7,
+      "label_isosurface_residual": 2.4868995751603507e-14,
+      "coordinate_round_trip_error_voxels": 1.971549323798172e-14,
+      "fine_float32_quantization_um": 3.850258176980744e-06,
+      "coarse_float32_quantization_um": 3.937795002908145e-06,
+      "sampled_vertex_distance_max_um": 1.233027855710579,
+      "surface_distance_upper_bound_um": 3.3034662395116126
+    },
+    {
+      "label_id": 22,
+      "fine": {
+        "vertices": 6306,
+        "faces": 12608,
+        "components": 1,
+        "euler": 2,
+        "boundary_edges": 0,
+        "nonmanifold_edges": 0
+      },
+      "coarse": {
+        "vertices": 1893,
+        "faces": 3782,
+        "components": 1,
+        "euler": 2,
+        "boundary_edges": 0,
+        "nonmanifold_edges": 0
+      },
+      "target_reduction": 0.7,
+      "label_isosurface_residual": 3.907985046680551e-14,
+      "coordinate_round_trip_error_voxels": 3.943098647596344e-14,
+      "fine_float32_quantization_um": 4.5919702100786804e-06,
+      "coarse_float32_quantization_um": 4.5919702100786804e-06,
+      "sampled_vertex_distance_max_um": 1.2330278557105216,
+      "surface_distance_upper_bound_um": 4.292720706526315
+    },
+    {
+      "label_id": 8,
+      "fine": {
+        "vertices": 5610,
+        "faces": 11216,
+        "components": 1,
+        "euler": 2,
+        "boundary_edges": 0,
+        "nonmanifold_edges": 0
+      },
+      "coarse": {
+        "vertices": 1684,
+        "faces": 3364,
+        "components": 1,
+        "euler": 2,
+        "boundary_edges": 0,
+        "nonmanifold_edges": 0
+      },
+      "target_reduction": 0.7,
+      "label_isosurface_residual": 3.907985046680551e-14,
+      "coordinate_round_trip_error_voxels": 3.943098647596344e-14,
+      "fine_float32_quantization_um": 4.5617283231308685e-06,
+      "coarse_float32_quantization_um": 4.423680565947914e-06,
+      "sampled_vertex_distance_max_um": 1.156315336885354,
+      "surface_distance_upper_bound_um": 5.020058816578703
+    }
+  ],
+  "crop_zyx": [
+    [
+      48,
+      176
+    ],
+    [
+      32,
+      224
+    ],
+    [
+      32,
+      224
+    ]
+  ],
+  "spacing_zyx_um": [
+    0.5002025531914894,
+    0.3603981534640209,
+    0.3603981534640209
+  ],
+  "origin_xyz_um": [
+    11.532740910848668,
+    11.532740910848668,
+    24.009722553191494
+  ],
+  "level_errors_um": [
+    4.5919702100786804e-06,
+    5.020063240259269
+  ],
+  "inputs_sha256": "2bb4e5d4c7cd4734a57a9904744cce6896f71aab8de7f286916704aae5af5ce0",
+  "reference_sha256": "c5f55e17da4c566fdca2f326ccc4d35c377d26b5aaec7e77cb365dc60e6e5555",
+  "notes": "Complete objects only; labels touching crop edges excluded. Derived surfaces retain source label IDs. Coarse candidates checked for components, Euler characteristic and edge incidence. This does not independently validate segmentation biology.",
+  "reference_verification": {
+    "reference_faces": 81566,
+    "streamed_faces": 81566,
+    "owner_cells": 88,
+    "oriented_triangle_sha256": "37b8100a2ec37d0997716ef3af811e932ec663cdae39362180ff5e181e29a149",
+    "exact_after_declared_float32_quantization": true
+  }
+}

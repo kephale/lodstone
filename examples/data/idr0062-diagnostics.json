@@ -1,0 +1,270 @@
+{
+  "scope": "Same local prepared IDR0062 fixture as baseline; encoded-store bytes, not HTTP wire bytes. After read-only metadata snapshot reuse. RSS sampling excludes preprocessing. GPU driver allocations unmeasured.",
+  "streaming": [
+    {
+      "generation": 1,
+      "state": "complete",
+      "requested_level": 1,
+      "displayed_level": 1,
+      "reads": 85,
+      "cache_hits": 0,
+      "stale_reads": 0,
+      "evictions": 0,
+      "cache_bytes": 937656,
+      "staged_bytes": 0,
+      "phase_chunks_done": 85,
+      "phase_chunks_total": 85,
+      "displayed_chunks": 85,
+      "limited": false,
+      "error": null,
+      "store_io": {
+        "requests": 1434,
+        "bytes_returned": 1533418,
+        "metadata_bytes": 227978,
+        "payload_bytes": 1305440,
+        "misses": 6
+      },
+      "submitted_render_buffer_bytes": 644064,
+      "process_memory": {
+        "rss_bytes": 397291520,
+        "sampled_peak_rss_bytes": 397291520,
+        "elapsed_seconds": 20.358282391971443,
+        "actual_gpu_memory_bytes": null,
+        "gpu_memory_note": "Submitted buffer accounting is separate; actual driver allocations unavailable."
+      }
+    },
+    {
+      "generation": 2,
+      "state": "complete",
+      "requested_level": 0,
+      "displayed_level": 0,
+      "reads": 173,
+      "cache_hits": 85,
+      "stale_reads": 0,
+      "evictions": 0,
+      "cache_bytes": 3971280,
+      "staged_bytes": 0,
+      "phase_chunks_done": 88,
+      "phase_chunks_total": 88,
+      "displayed_chunks": 88,
+      "limited": false,
+      "error": null,
+      "store_io": {
+        "requests": 2700,
+        "bytes_returned": 5787767,
+        "metadata_bytes": 229987,
+        "payload_bytes": 5557780,
+        "misses": 6
+      },
+      "submitted_render_buffer_bytes": 2054832,
+      "process_memory": {
+        "rss_bytes": 423698432,
+        "sampled_peak_rss_bytes": 423706624,
+        "elapsed_seconds": 32.25701586401556,
+        "actual_gpu_memory_bytes": null,
+        "gpu_memory_note": "Submitted buffer accounting is separate; actual driver allocations unavailable."
+      }
+    }
+  ],
+  "camera_replay": [
+    {
+      "case": "warm_repeat",
+      "additional_store_bytes": 0,
+      "generation": 3,
+      "state": "complete",
+      "requested_level": 0,
+      "displayed_level": 0,
+      "reads": 173,
+      "cache_hits": 258,
+      "stale_reads": 0,
+      "evictions": 0,
+      "cache_bytes": 3971280,
+      "staged_bytes": 0,
+      "phase_chunks_done": 88,
+      "phase_chunks_total": 88,
+      "displayed_chunks": 88,
+      "limited": false,
+      "error": null,
+      "store_io": {
+        "requests": 0,
+        "bytes_returned": 0,
+        "metadata_bytes": 0,
+        "payload_bytes": 0,
+        "misses": 0
+      },
+      "submitted_render_buffer_bytes": 2054832,
+      "process_memory": {
+        "rss_bytes": 437907456,
+        "sampled_peak_rss_bytes": 437907456,
+        "elapsed_seconds": 41.25097877101507,
+        "actual_gpu_memory_bytes": null,
+        "gpu_memory_note": "Submitted buffer accounting is separate; actual driver allocations unavailable."
+      }
+    },
+    {
+      "case": "zoom",
+      "generation": 4,
+      "state": "complete",
+      "requested_level": 0,
+      "displayed_level": 0,
+      "reads": 173,
+      "cache_hits": 431,
+      "stale_reads": 0,
+      "evictions": 0,
+      "cache_bytes": 3971280,
+      "staged_bytes": 0,
+      "phase_chunks_done": 88,
+      "phase_chunks_total": 88,
+      "displayed_chunks": 88,
+      "limited": false,
+      "error": null,
+      "store_io": {
+        "requests": 0,
+        "bytes_returned": 0,
+        "metadata_bytes": 0,
+        "payload_bytes": 0,
+        "misses": 0
+      },
+      "submitted_render_buffer_bytes": 2054832,
+      "process_memory": {
+        "rss_bytes": 437907456,
+        "sampled_peak_rss_bytes": 437907456,
+        "elapsed_seconds": 41.86068801797228,
+        "actual_gpu_memory_bytes": null,
+        "gpu_memory_note": "Submitted buffer accounting is separate; actual driver allocations unavailable."
+      }
+    },
+    {
+      "case": "pan",
+      "generation": 5,
+      "state": "complete",
+      "requested_level": 0,
+      "displayed_level": 0,
+      "reads": 173,
+      "cache_hits": 567,
+      "stale_reads": 0,
+      "evictions": 0,
+      "cache_bytes": 3971280,
+      "staged_bytes": 0,
+      "phase_chunks_done": 69,
+      "phase_chunks_total": 69,
+      "displayed_chunks": 69,
+      "limited": false,
+      "error": null,
+      "store_io": {
+        "requests": 0,
+        "bytes_returned": 0,
+        "metadata_bytes": 0,
+        "payload_bytes": 0,
+        "misses": 0
+      },
+      "submitted_render_buffer_bytes": 1687896,
+      "process_memory": {
+        "rss_bytes": 437907456,
+        "sampled_peak_rss_bytes": 437907456,
+        "elapsed_seconds": 42.357259962998796,
+        "actual_gpu_memory_bytes": null,
+        "gpu_memory_note": "Submitted buffer accounting is separate; actual driver allocations unavailable."
+      }
+    },
+    {
+      "case": "far",
+      "generation": 6,
+      "state": "complete",
+      "requested_level": 1,
+      "displayed_level": 1,
+      "reads": 173,
+      "cache_hits": 652,
+      "stale_reads": 0,
+      "evictions": 0,
+      "cache_bytes": 3971280,
+      "staged_bytes": 0,
+      "phase_chunks_done": 85,
+      "phase_chunks_total": 85,
+      "displayed_chunks": 85,
+      "limited": false,
+      "error": null,
+      "store_io": {
+        "requests": 0,
+        "bytes_returned": 0,
+        "metadata_bytes": 0,
+        "payload_bytes": 0,
+        "misses": 0
+      },
+      "submitted_render_buffer_bytes": 644064,
+      "process_memory": {
+        "rss_bytes": 437907456,
+        "sampled_peak_rss_bytes": 437907456,
+        "elapsed_seconds": 42.637786636012606,
+        "actual_gpu_memory_bytes": null,
+        "gpu_memory_note": "Submitted buffer accounting is separate; actual driver allocations unavailable."
+      }
+    },
+    {
+      "case": "return",
+      "generation": 7,
+      "state": "complete",
+      "requested_level": 0,
+      "displayed_level": 0,
+      "reads": 173,
+      "cache_hits": 825,
+      "stale_reads": 0,
+      "evictions": 0,
+      "cache_bytes": 3971280,
+      "staged_bytes": 0,
+      "phase_chunks_done": 88,
+      "phase_chunks_total": 88,
+      "displayed_chunks": 88,
+      "limited": false,
+      "error": null,
+      "store_io": {
+        "requests": 0,
+        "bytes_returned": 0,
+        "metadata_bytes": 0,
+        "payload_bytes": 0,
+        "misses": 0
+      },
+      "submitted_render_buffer_bytes": 2054832,
+      "process_memory": {
+        "rss_bytes": 438046720,
+        "sampled_peak_rss_bytes": 438046720,
+        "elapsed_seconds": 43.24813667498529,
+        "actual_gpu_memory_bytes": null,
+        "gpu_memory_note": "Submitted buffer accounting is separate; actual driver allocations unavailable."
+      }
+    },
+    {
+      "case": "rapid_navigation",
+      "generation": 12,
+      "state": "complete",
+      "requested_level": 0,
+      "displayed_level": 0,
+      "reads": 177,
+      "cache_hits": 0,
+      "stale_reads": 4,
+      "evictions": 0,
+      "cache_bytes": 3971280,
+      "staged_bytes": 0,
+      "phase_chunks_done": 88,
+      "phase_chunks_total": 88,
+      "displayed_chunks": 88,
+      "limited": false,
+      "error": null,
+      "store_io": {
+        "requests": 2517,
+        "bytes_returned": 5575364,
+        "metadata_bytes": 0,
+        "payload_bytes": 5575364,
+        "misses": 0
+      },
+      "submitted_render_buffer_bytes": 2054832,
+      "process_memory": {
+        "rss_bytes": 438525952,
+        "sampled_peak_rss_bytes": 438525952,
+        "elapsed_seconds": 47.4215515209944,
+        "actual_gpu_memory_bytes": null,
+        "gpu_memory_note": "Submitted buffer accounting is separate; actual driver allocations unavailable."
+      }
+    }
+  ]
+}
