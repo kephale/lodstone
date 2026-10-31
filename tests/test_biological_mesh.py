@@ -65,6 +65,6 @@ def test_cached_public_fixture_matches_retained_reference():
         )
     from lodstone.biological_mesh import verify_reference
 
-    report = json.loads((Path(cache) / "surfaces-v2-6/report.json").read_text())
+    report = json.loads((Path(cache) / "surfaces-v3-6/report.json").read_text())
     result = verify_reference(report)
     assert result["streamed_faces"] == result["reference_faces"] == 81566

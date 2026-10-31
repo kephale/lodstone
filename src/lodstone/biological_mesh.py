@@ -214,10 +214,22 @@ def surface_error_bound(fine_v, fine_f, coarse_v, coarse_f) -> dict[str, float]:
 
 def prepare_biological_mesh(cache: Path, *, max_objects: int = 6) -> dict:
     """Build two surface levels and retain the original fine geometry."""
-    output = cache / f"surfaces-v2-{max_objects}"
+    output = cache / f"surfaces-v3-{max_objects}"
     report_path = output / "report.json"
     if report_path.exists():
-        return json.loads(report_path.read_text())
+        report = json.loads(report_path.read_text())
+        download_crop(cache)  # verify the paired inputs on cached launches too
+        if (
+            sha256(Path(report["reference_path"]).read_bytes())
+            != report["reference_sha256"]
+        ):
+            raise ValueError("cached reference geometry failed checksum verification")
+        for relative, digest in report["mesh_files_sha256"].items():
+            if sha256((Path(report["mesh_path"]) / relative).read_bytes()) != digest:
+                raise ValueError(
+                    f"cached mesh file failed checksum verification: {relative}"
+                )
+        return report
     _image, labels, spacing, manifest = download_crop(cache)
     simplifier = import_module("fast_simplification")
     building = import_module("zarr_vectors.building")
@@ -364,6 +376,11 @@ def prepare_biological_mesh(cache: Path, *, max_objects: int = 6) -> dict:
         ],
         "inputs_sha256": manifest["inputs_sha256"],
         "reference_sha256": sha256((output / "reference.npz").read_bytes()),
+        "mesh_files_sha256": {
+            str(path.relative_to(root)): sha256(path.read_bytes())
+            for path in sorted(root.rglob("*"))
+            if path.is_file()
+        },
         "notes": "Complete objects only; labels touching crop edges excluded. Derived surfaces retain source label IDs. Coarse candidates checked for components, Euler characteristic and edge incidence. This does not independently validate segmentation biology.",
     }
     report_path.write_text(json.dumps(report, indent=2))
@@ -389,18 +406,19 @@ def verify_reference(report: dict) -> dict:
             expected.extend(
                 keys(original[f"vertices_{object_id}"], original[f"faces_{object_id}"])
             )
-    reader = building.MeshReader(report["mesh_path"], level=0)
     actual = []
-    for chunk in reader.chunks:
-        result = reader.read([chunk.key], max_bytes=64 << 20)
-        actual.extend(keys(result["vertices"], result["faces"]))
+    with building.MeshReader(report["mesh_path"], level=0) as reader:
+        owners = len(reader.chunks)
+        for chunk in reader.chunks:
+            result = reader.read([chunk.key], max_bytes=64 << 20)
+            actual.extend(keys(result["vertices"], result["faces"]))
     expected, actual = sorted(expected), sorted(actual)
     if actual != expected:
         raise ValueError("streamed fine geometry differs from the retained reference")
     return {
         "reference_faces": len(expected),
         "streamed_faces": len(actual),
-        "owner_cells": len(reader.chunks),
+        "owner_cells": owners,
         "oriented_triangle_sha256": sha256(b"".join(actual)),
         "exact_after_declared_float32_quantization": True,
     }

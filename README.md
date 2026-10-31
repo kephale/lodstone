@@ -162,6 +162,10 @@ Experimental geometry support is being developed separately from the array
 integrations: see [Zarr Vectors mesh streaming](docs/mesh-streaming.md) for the
 companion reader branch, runnable PyGFX example, memory limits and exclusions.
 
+The [biological image/surface demo](docs/biological-mesh.md) adds a one-command
+Nessys dataset viewer with paired fluorescence, retained reference meshes,
+chunk overlays, measured store reads, and process-memory diagnostics.
+
 | Viewer | Integration | Status |
 | --- | --- | --- |
 | ChimeraX OME-Zarr | [PR 22](https://github.com/uermel/chimerax-ome-zarr/pull/22) | 3-D clipmap streaming; visually validated |

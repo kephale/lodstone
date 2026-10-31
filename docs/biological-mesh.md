@@ -1,5 +1,21 @@
 # Biological image and multiscale surface demo
 
+## Run without an existing environment
+
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and Git,
+then run this single command on your desktop:
+
+```text
+uv run https://raw.githubusercontent.com/kephale/lodstone/refs/heads/feat/zarr-vectors-mesh-streaming/examples/biological_mesh.py
+```
+
+The script declares Python and its pinned dependencies. No clones or manual
+environment setup are needed. The first launch fetches and verifies the small
+public crop, builds the derived surfaces, then opens the viewer. Subsequent
+launches use the verified cache. Append `--offscreen mesh-renders` to save images
+instead of opening a window, or `--diagnostic-replay --offscreen mesh-check` for
+the recorded camera checks.
+
 This demo uses image **6001240**, study **idr0062 / Nessys**, from the Image Data
 Resource. The source provides LaminB1 and Dapi fluorescence channels plus
 instance labels in the same physical coordinate frame.
@@ -106,3 +122,29 @@ limited, and cache eviction keeps retained arrays within that separate limit.
 
 Baseline measurements, including a large repeated-metadata cost discovered by
 these diagnostics: [idr0062-diagnostics-baseline.json](../examples/data/idr0062-diagnostics-baseline.json).
+
+## Metadata reuse and upstream preparation
+
+The additive reader now keeps a read-only metadata snapshot across ownership
+queries. On the same prepared local dataset, measured coarse-plus-fine store
+bytes fell from **45,285,804** to **5,787,767**. Metadata fell from **39,728,024**
+to **229,987** bytes; payload stayed **5,557,780** bytes. These are store-interface
+measurements, not a remote network-latency speedup or a claim about large-scale
+datasets. Index construction is resident and remains separate from geometry
+streaming budgets. Construct a fresh reader after mutations.
+
+The independent upstream packet includes a boundary-face reproducer with
+unrelated geometry, real Store counters, discovery cost, and regression tests:
+[Zarr Vectors review packet](https://github.com/kephale/zarr-vectors-py/blob/feat/bounded-mesh-reads/docs/upstream/mesh-streaming-review.md).
+
+Optimized replay: [idr0062-diagnostics.json](../examples/data/idr0062-diagnostics.json).
+
+| Image with fine surfaces | Streamed ownership bounds |
+| --- | --- |
+| ![Nessys image and surfaces](../img/biological-mesh-overlay.png) | ![Ownership bounds](../img/biological-mesh-bounds.png) |
+
+Limits: local prepared mesh storage is tested; actual remote mesh latency and
+GPU driver memory allocations remain unmeasured. Normals are fragment-local;
+shading seams do not imply missing triangles. Draco, object filtering, editing,
+and mixed-LOD seams remain excluded. The full upstream test suite was not
+completed; focused mesh/link regressions and the downstream suite are recorded.

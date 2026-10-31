@@ -43,12 +43,12 @@ explicit installation message. Running `uv sync` again may replace the editable
 install; repeat the final installation command afterward.
 
 The locally validated integration uses reader revision
-`32bbd4db6656eb493fc1c497716ae689e5f146ea`. To reproduce that revision instead
+`40bd38045e0c23019c5c88a54824b89f89243e4e`. To reproduce that revision instead
 of an editable checkout, use:
 
 ```bash
 uv pip install --python .venv/bin/python \
-  "zarr-vectors @ git+https://github.com/kephale/zarr-vectors-py@32bbd4db6656eb493fc1c497716ae689e5f146ea"
+  "zarr-vectors @ git+https://github.com/kephale/zarr-vectors-py@40bd38045e0c23019c5c88a54824b89f89243e4e"
 ```
 
 The default example generates two explicit tessellations of one analytic sphere.

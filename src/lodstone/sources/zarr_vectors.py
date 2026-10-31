@@ -38,6 +38,8 @@ class ZarrVectorsMeshSource:
     ) -> None:
         try:
             MeshReader = import_module("zarr_vectors.building").MeshReader
+            if not hasattr(MeshReader, "close"):
+                raise ImportError("MeshReader lacks the metadata snapshot lifecycle")
         except (ImportError, AttributeError) as error:
             raise ImportError(
                 "ZarrVectorsMeshSource requires zarr-vectors with building.MeshReader; "
@@ -104,3 +106,9 @@ class ZarrVectorsMeshSource:
         vertices = result["vertices"]
         moved = vertices @ self._transform[:3, :3].T + self._transform[:3, 3]
         return MeshData(moved, result["faces"])
+
+    def close(self) -> None:
+        """Close readers after the stream has stopped using this source."""
+        with self._lock:
+            for reader in self._readers:
+                reader.close()

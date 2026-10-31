@@ -184,13 +184,18 @@ def main() -> None:
         _width, height = canvas.get_logical_size()
         text.local.position = (14, height - 14, 0)
         reference_visible = reference is not None and reference.group.visible
+        active_buffer_bytes = (
+            reference.submitted_bytes
+            if reference is not None and reference.group.visible
+            else target.submitted_bytes
+        )
         text.material.color = (
             "#ff6666" if status.error else "#ffd67b" if status.limited else "white"
         )
         text.set_text(
             f"Nessys / IDR0062 — 6 complete labeled nuclei — micrometers\n"
             f"{status.state.upper()} | {'REFERENCE (not streamed)' if reference_visible else f'LOD {status.displayed_level}'} | phase {status.phase_chunks_done}/{status.phase_chunks_total}\n"
-            f"Mesh cache {status.cache_bytes / (1 << 20):.2f}/{args.memory_mib:g} MiB | active mesh buffers {(reference.submitted_bytes if reference_visible else target.submitted_bytes) / (1 << 20):.2f} MiB\n"
+            f"Mesh cache {status.cache_bytes / (1 << 20):.2f}/{args.memory_mib:g} MiB | active mesh buffers {active_buffer_bytes / (1 << 20):.2f} MiB\n"
             f"Store {io.bytes_returned / (1 << 20):.2f} MiB ({io.metadata_bytes / (1 << 20):.2f} metadata) | {io.requests} store reads\n"
             f"Cache hits {status.cache_hits} | evictions {status.evictions} | stale reads {status.stale_reads}\n"
             f"Process RSS {usage['rss_bytes'] / (1 << 20):.1f} MiB; sampled peak {usage['sampled_peak_rss_bytes'] / (1 << 20):.1f} MiB | GPU allocations: unavailable\n"
@@ -210,7 +215,6 @@ def main() -> None:
             target.group.visible = not target.group.visible
         elif event.key.lower() == "l":
             selected_level = {None: 1, 1: 0, 0: None}[selected_level]
-            stream.update(snapshot(), level=selected_level)
         elif event.key.lower() == "b":
             bound_group.visible = not bound_group.visible
         elif event.key.lower() == "r":
@@ -348,6 +352,7 @@ def main() -> None:
     finally:
         stream.close()
         target.close()
+        source.close()
         if reference is not None:
             reference.close()
         memory.close()
