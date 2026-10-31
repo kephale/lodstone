@@ -21,9 +21,24 @@ package versions are declared by the launcher; no existing project environment
 is needed. The checkout's `biological-demo` extra also installs the same fork
 reader automatically; see [development installation](mesh-streaming.md#install-lodstone-with-mesh-support).
 
-| LOD 0: fine | LOD 1: coarse |
+The pair below uses the same close-up camera, scale and shading at both LODs.
+[Full-neuron overview](../img/hemibrain-neurons-overview.png).
+
+| LOD 0: fine close-up | LOD 1: coarse close-up |
 | --- | --- |
 | ![Fine neuron surfaces](../img/hemibrain-neurons-smoothed.png) | ![Coarse neuron surfaces](../img/hemibrain-neurons-coarse.png) |
+
+Reproduce this comparison from the checkout (the default viewer still opens
+on the full neurons):
+
+```bash
+uv run --frozen --extra biological-demo -m lodstone.adapters.biological_mesh_demo --focus 40 182 125 --radius 10 --compact-overlay --offscreen neuron-closeups
+```
+
+The focus is XYZ in micrometers; the framing radius is 10 µm. The offscreen
+capture writes both forced LODs plus `comparison-camera.json` so their identical
+camera matrices and viewport can be checked. The captions report whole-mesh
+triangle counts; only the region in the close-up is visible.
 
 ## Controls
 

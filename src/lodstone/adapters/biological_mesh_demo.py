@@ -30,6 +30,21 @@ def main() -> None:
     parser.add_argument("--smooth-iterations", type=int, default=20)
     parser.add_argument("--cache", type=Path)
     parser.add_argument("--offscreen", type=Path)
+    parser.add_argument(
+        "--focus",
+        type=float,
+        nargs=3,
+        metavar=("X", "Y", "Z"),
+        help="initial camera focus in micrometers",
+    )
+    parser.add_argument(
+        "--radius", type=float, help="initial camera framing radius in micrometers"
+    )
+    parser.add_argument(
+        "--compact-overlay",
+        action="store_true",
+        help="show a compact LOD caption for comparison screenshots",
+    )
     parser.add_argument("--prepare-only", action="store_true")
     parser.add_argument("--memory-mib", type=float, default=64.0)
     parser.add_argument(
@@ -45,6 +60,10 @@ def main() -> None:
     args = parser.parse_args()
     if args.smooth_iterations < 0:
         parser.error("--smooth-iterations must be nonnegative")
+    if args.focus is not None and not np.all(np.isfinite(args.focus)):
+        parser.error("--focus coordinates must be finite")
+    if args.radius is not None and (not np.isfinite(args.radius) or args.radius <= 0):
+        parser.error("--radius must be finite and positive")
     if args.cache is None:
         args.cache = (
             Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
@@ -90,8 +109,15 @@ def main() -> None:
         origin_xyz = np.asarray(report["origin_xyz_um"])
         extent = origin_xyz + (np.asarray(image.shape[-3:])[::-1] - 1) * spacing_xyz
     center = (origin_xyz + extent) / 2
+    if args.focus is not None:
+        center = np.asarray(args.focus)
+    radius = (
+        float(np.linalg.norm(extent - origin_xyz) / 2)
+        if args.radius is None
+        else args.radius
+    )
     camera.show_object(
-        (*center, float(np.linalg.norm(extent - origin_xyz) / 2)),
+        (*center, radius),
         view_dir=(1.0, -1.0, -0.8),
         up=(0.0, 0.0, 1.0),
     )
@@ -261,6 +287,24 @@ def main() -> None:
             f"{status.error or (('Phase exceeds budget; current surface retained' if status.displayed_level is not None else 'Visible phase exceeds budget; increase --memory-mib') if status.limited else 'Drag to orbit; scroll to zoom')}\n"
             f"{credit}"
         )
+        if args.compact_overlay:
+            level = status.displayed_level
+            detail = (
+                reference_label
+                if reference_visible
+                else f"LOD {level}: {'fine' if level == 0 else 'coarse'}"
+            )
+            count = (
+                sum(
+                    o["fine" if reference_visible or level == 0 else "coarse"]["faces"]
+                    for o in report["objects"]
+                )
+                if level is not None
+                else 0
+            )
+            text.set_text(
+                f"{title}\n{detail} · {count:,} full-mesh triangles · {status.state.upper()}\n{status.error or 'Matched camera · physical coordinates in µm'}"
+            )
         renderer.render(scene, camera, flush=False)
         renderer.render(overlay, overlay_camera)
 
@@ -292,9 +336,18 @@ def main() -> None:
             args.offscreen.mkdir(parents=True, exist_ok=True)
             iio = import_module("imageio.v3")
             evidence = []
+            camera_evidence = []
             for level in reversed(range(len(source.levels))):
                 selected_level = level
-                stream.update(snapshot(), level=level)
+                view = snapshot()
+                camera_evidence.append(
+                    {
+                        "level": level,
+                        "world_to_clip": view.world_to_clip.tolist(),
+                        "viewport": list(view.viewport),
+                    }
+                )
+                stream.update(view, level=level)
                 try:
                     stream.wait(timeout=120)
                 except Exception:
@@ -319,6 +372,16 @@ def main() -> None:
                     pixels = np.asarray(canvas.draw())
                     iio.imwrite(args.offscreen / f"level-{level}-{name}.png", pixels)
                 evidence.append(diagnostic_snapshot(stream, source, target, memory))
+            (args.offscreen / "comparison-camera.json").write_text(
+                json.dumps(
+                    {
+                        "focus_xyz_um": center.tolist(),
+                        "radius_um": radius,
+                        "views": camera_evidence,
+                    },
+                    indent=2,
+                )
+            )
             images.visible = target.group.visible = True
             bound_group.visible = True
             canvas.request_draw(paint)
@@ -354,7 +417,6 @@ def main() -> None:
                         **diagnostic_snapshot(stream, source, target, memory),
                     }
                 )
-                radius = float(np.linalg.norm(extent - origin_xyz) / 2)
                 for name, scale, translation in [
                     ("zoom", 0.5, 0.0),
                     ("pan", 0.5, 25.0),
