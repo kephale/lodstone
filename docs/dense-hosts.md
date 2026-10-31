@@ -29,7 +29,8 @@ Automatic replanning is enabled when the canvas also satisfies
 `CameraDenseCanvas`: it exposes a connectable `cameraChanged` signal and returns
 the current `(viewport, world_to_clip)` snapshot from `camera_state()`. Matrices
 consume coordinates in displayed data-axis order and preserve homogeneous
-coordinates for perspective cameras.
+coordinates for perspective cameras. Hosts drawing through a VisPy view box can
+use `vispy_world_to_clip` for this matrix.
 
 Camera events are trailing-edge debounced. Events caused by Lodstone's own
 publication are ignored, and planning happens on the controller's camera worker

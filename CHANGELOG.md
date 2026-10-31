@@ -12,6 +12,7 @@ the 0.1 alpha series and may change between prereleases.
 - Add `orthographic_world_to_clip` for building reproducible camera views.
 - Record the submitted view and a plan summary in performance snapshots and
   records.
+- Add `vispy_world_to_clip` for hosts that draw through a VisPy view box.
 
 ## 0.1.0a2 - 2026-08-30
 

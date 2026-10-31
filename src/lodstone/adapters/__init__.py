@@ -19,6 +19,7 @@ from .napari import (
 )
 from .ndv import NDVController, NDVPublication, NDVTarget
 from .scenex import SceneXController, SceneXTarget, scenex_view_snapshot
+from .vispy import vispy_world_to_clip
 
 __all__ = [
     "ArraySource",
@@ -40,4 +41,5 @@ __all__ = [
     "add_lodstone_image",
     "add_lodstone_labels",
     "scenex_view_snapshot",
+    "vispy_world_to_clip",
 ]
