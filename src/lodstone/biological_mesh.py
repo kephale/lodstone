@@ -290,7 +290,8 @@ def prepare_biological_mesh(cache: Path, *, max_objects: int = 6) -> dict:
         if alignment_error > 1e-10:
             raise ValueError("mesh/image coordinate round trip failed")
         for reduction in (0.7, 0.4, 0.15):
-            cv, cf = simplifier.simplify(v, f, target_reduction=reduction)
+            # Keep the retained source geometry independent of simplifier buffers.
+            cv, cf = simplifier.simplify(v.copy(), f.copy(), target_reduction=reduction)
             coarse_topology = topology(cv, cf)
             if all(
                 coarse_topology[k] == original_topology[k]
@@ -400,9 +401,20 @@ def verify_reference(report: dict) -> dict:
         ]
 
     expected = []
+    with np.load(report["inputs_path"]) as inputs:
+        labels = inputs["labels"]
+    spacing = np.asarray(report["spacing_zyx_um"])
+    origin = np.asarray(report["origin_xyz_um"])[::-1]
     with np.load(report["reference_path"]) as original:
         for item in report["objects"]:
             object_id = item["label_id"]
+            regenerated_v, regenerated_f = label_surface(
+                labels == object_id, spacing, origin
+            )
+            np.testing.assert_array_equal(
+                original[f"vertices_{object_id}"], regenerated_v
+            )
+            np.testing.assert_array_equal(original[f"faces_{object_id}"], regenerated_f)
             expected.extend(
                 keys(original[f"vertices_{object_id}"], original[f"faces_{object_id}"])
             )
@@ -421,4 +433,5 @@ def verify_reference(report: dict) -> dict:
         "owner_cells": owners,
         "oriented_triangle_sha256": sha256(b"".join(actual)),
         "exact_after_declared_float32_quantization": True,
+        "retained_reference_matches_label_extraction": True,
     }
