@@ -9,6 +9,7 @@ the 0.1 alpha series and may change between prereleases.
 - Ignore camera events only during Lodstone's own publication, so a camera moved
   from a host callback replans instead of being dropped.
 - Add `clims` for fixed contrast limits on dense targets.
+- Add `orthographic_world_to_clip` for building reproducible camera views.
 
 ## 0.1.0a2 - 2026-08-30
 

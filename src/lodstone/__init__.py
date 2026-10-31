@@ -21,6 +21,7 @@ from .geometry import (
     expand_region_to_chunk_grid,
     isotropic_extent_for_bytes,
     native_chunks_in_region,
+    orthographic_world_to_clip,
 )
 from .model import (
     ChunkEvent,
@@ -132,6 +133,7 @@ __all__ = [
     "native_chunks_in_region",
     "nearest_resample_region",
     "normalize_chunk_sizes",
+    "orthographic_world_to_clip",
     "plan_from_slices",
     "regular_chunk_sizes",
 ]
