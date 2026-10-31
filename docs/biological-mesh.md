@@ -62,8 +62,47 @@ After installing the companion mesh-reader branch and scientific dependencies:
 .venv/bin/python -m lodstone.adapters.biological_mesh_demo --offscreen /tmp/biological-mesh
 ```
 
-`V` toggles the paired image volume, `M` the streamed surfaces, and `L` cycles
+`V` toggles the paired image volume, `M` the streamed surfaces, `B` conservative
+chunk bounds, `R` the retained **unstreamed** reference, and `L` cycles
 automatic/coarse/fine. Drag to orbit and scroll to zoom. The default cache is
 `~/.cache/lodstone/idr0062-mesh-v1` (or under `XDG_CACHE_HOME`); use `--cache` to
 choose another location. Initial preparation downloads only intersecting
 native chunks, then builds the two raw Zarr Vectors surface levels.
+
+## Diagnostics and checks
+
+The on-screen overlay distinguishes loading, complete, limited and failed states.
+It shows the displayed LOD, phase progress, decoded cache bytes, active submitted
+mesh-buffer bytes, encoded-store bytes, metadata bytes, logical store reads,
+cache hits/evictions, rejected stale reads, process RSS and sampled peak RSS.
+
+Store bytes are measured at Zarr's Store interface, including range reads and
+metadata. They are not decoded-geometry sizes or an HTTP wire-byte estimate.
+The biological demo streams a locally prepared Zarr Vectors store; source-image
+HTTP download sizes are recorded separately in `input-manifest.json`.
+
+RSS sampling starts after fixture preparation and includes volume arrays,
+reference geometry and renderer state. Actual GPU driver allocations are not
+available. Submitted position/index/normal buffer accounting is labeled
+separately; it excludes texture/driver overhead and is not a total GPU-memory
+claim. A small mesh budget does not cap the whole process or image textures.
+
+```bash
+.venv/bin/python -m lodstone.adapters.biological_mesh_demo --offscreen /tmp/mesh-check --diagnostic-replay
+.venv/bin/python -m lodstone.adapters.biological_mesh_demo --offscreen /tmp/mesh-limited --memory-mib 1
+.venv/bin/python -m lodstone.adapters.biological_mesh_demo --offscreen /tmp/mesh-failure --inject-failure
+```
+
+The final command deliberately exits nonzero after saving `failure.png` and
+`failure.json`. It verifies that a read fault stays visible rather than being
+reported as a successful empty surface. Ordinary GUI read failures remain in
+the red overlay and can be retried by changing LOD.
+
+The recorded replay shows zero additional store bytes for a warm decoded-cache
+repeat, fewer displayed chunks after panning, a coarse automatic LOD at a far
+view, and rejection of a superseded read during rapid cold-cache navigation.
+At a 1 MiB cache budget the coarse surface remains visible, refinement is marked
+limited, and cache eviction keeps retained arrays within that separate limit.
+
+Baseline measurements, including a large repeated-metadata cost discovered by
+these diagnostics: [idr0062-diagnostics-baseline.json](../examples/data/idr0062-diagnostics-baseline.json).

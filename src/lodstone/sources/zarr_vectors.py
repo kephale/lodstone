@@ -8,11 +8,13 @@ from collections.abc import Sequence
 from functools import partial
 from importlib import import_module
 from itertools import pairwise, product
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 
 from ..mesh import MeshChunk, MeshData, MeshLevel
+from ..mesh_diagnostics import StoreReadCounter, counted_store
 
 
 class ZarrVectorsMeshSource:
@@ -32,6 +34,7 @@ class ZarrVectorsMeshSource:
         stored_levels: Sequence[int] | None = None,
         transform: np.ndarray | None = None,
         max_read_bytes: int = 128 << 20,
+        track_io: bool = False,
     ) -> None:
         try:
             MeshReader = import_module("zarr_vectors.building").MeshReader
@@ -43,6 +46,17 @@ class ZarrVectorsMeshSource:
         if max_read_bytes <= 0:
             raise ValueError("max_read_bytes must be positive")
         self.max_read_bytes = max_read_bytes
+        self.io = StoreReadCounter()
+        if track_io:
+            if isinstance(source, (str, Path)):
+                if str(source).startswith(("http://", "https://", "s3://", "gs://")):
+                    raise ValueError(
+                        "For remote I/O tracking, supply an explicit Zarr Store"
+                    )
+                source = import_module("zarr.storage").LocalStore(
+                    source, read_only=True
+                )
+            source = counted_store(source, self.io)
         indices = (
             tuple(range(len(level_errors)))
             if stored_levels is None

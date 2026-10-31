@@ -99,6 +99,7 @@ def test_budget_preserves_completed_coarse_phase():
         assert stream.displayed_level == 1
         assert [level for level, _ in target.phases] == [1]
         assert stream.cache_bytes <= 100
+        assert stream.snapshot().state == "limited"
     finally:
         stream.close()
 
@@ -110,6 +111,8 @@ def test_oversized_coarse_fails_instead_of_silently_cropping():
         with pytest.raises(MemoryError):
             stream.wait()
         assert isinstance(stream.error, MemoryError)
+        assert stream.snapshot().state == "failed"
+        assert stream.snapshot().error is not None
     finally:
         stream.close()
 
@@ -135,6 +138,7 @@ def test_stale_blocking_read_does_not_publish_or_overlap():
         release.set()
         stream.wait()
         assert [level for level, _ in target.phases] == [1]
+        assert stream.snapshot().stale_reads == 1
     finally:
         release.set()
         stream.close()
@@ -231,5 +235,19 @@ def test_target_budget_failure_keeps_coarse_phase():
         stream.wait()
         assert stream.limited and stream.displayed_level == 1
         assert stream.error is None
+    finally:
+        stream.close()
+
+
+def test_phase_replacement_evicts_cache_without_losing_the_surface():
+    target = Target()
+    stream = MeshStream(Source(), target, memory_limit=100)
+    try:
+        stream.update(view(), level=0)
+        stream.wait()
+        state = stream.snapshot()
+        assert state.evictions == 1 and state.cache_bytes == 60
+        assert state.state == "complete" and state.displayed_level == 0
+        assert len(target.phases[-1][1]) == 1
     finally:
         stream.close()

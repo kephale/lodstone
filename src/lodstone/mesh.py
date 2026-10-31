@@ -87,6 +87,25 @@ class MeshTarget(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class MeshStreamSnapshot:
+    generation: int
+    state: str
+    requested_level: int | None
+    displayed_level: int | None
+    reads: int
+    cache_hits: int
+    stale_reads: int
+    evictions: int
+    cache_bytes: int
+    staged_bytes: int
+    phase_chunks_done: int
+    phase_chunks_total: int
+    displayed_chunks: int
+    limited: bool
+    error: str | None
+
+
 def visible_chunks(level: MeshLevel, view: View) -> tuple[MeshChunk, ...]:
     """Conservative homogeneous frustum culling, nearest screen center first."""
     if view.displayed_axes != (0, 1, 2):
@@ -187,6 +206,11 @@ class MeshStream:
         self.error: BaseException | None = None
         self.reads = 0
         self.cache_bytes = 0
+        self.state = "idle"
+        self.requested_level: int | None = None
+        self.cache_hits = self.stale_reads = self.evictions = 0
+        self.staged_bytes = self.phase_chunks_done = self.phase_chunks_total = 0
+        self.displayed_keys: frozenset[MeshKey] = frozenset()
 
     def update(self, view: View, *, level: int | None = None) -> None:
         selected = (
@@ -202,6 +226,8 @@ class MeshStream:
                 raise RuntimeError("mesh stream is closed")
             self._generation += 1
             generation = self._generation
+            self.state = "loading"
+            self.requested_level = selected
             # Do not cancel an executor read: cancelling the await does not
             # stop its worker and could overlap reads on a non-threadsafe source.
             previous = self._future
@@ -226,7 +252,10 @@ class MeshStream:
                 staged: list[tuple[MeshKey, MeshData]] = []
                 pinned: set[MeshKey] = set()
                 phase_bytes = 0
-                for chunk in visible_chunks(self.source.levels[level], view):
+                chunks = visible_chunks(self.source.levels[level], view)
+                self.phase_chunks_done, self.phase_chunks_total = 0, len(chunks)
+                self.staged_bytes = 0
+                for chunk in chunks:
                     if not self._current(generation):
                         return
                     key = (level, chunk.key)
@@ -242,7 +271,10 @@ class MeshStream:
                             raise
                         self.reads += 1
                         if not self._current(generation):
+                            self.stale_reads += 1
                             return
+                    else:
+                        self.cache_hits += 1
                     phase_bytes += data.nbytes
                     if phase_bytes > self.memory_limit:
                         self.limited = True
@@ -255,6 +287,8 @@ class MeshStream:
                         return
                     pinned.add(key)
                     staged.append((key, data))
+                    self.staged_bytes = phase_bytes
+                    self.phase_chunks_done += 1
                 if not self._current(generation):
                     return
                 try:
@@ -269,6 +303,17 @@ class MeshStream:
             if self._current(generation):
                 self.error = error
             raise
+        finally:
+            with self._lock:
+                if self._current(generation):
+                    self.staged_bytes = 0
+                    self.state = (
+                        "failed"
+                        if self.error
+                        else "limited"
+                        if self.limited
+                        else "complete"
+                    )
 
     def _remember(
         self, generation: int, key: MeshKey, data: MeshData, pinned: set[MeshKey]
@@ -283,6 +328,7 @@ class MeshStream:
                     break
                 if old not in pinned and old != key:
                     self.cache_bytes -= self._cache.pop(old).nbytes
+                    self.evictions += 1
             if key not in self._cache:
                 self._cache[key] = data
                 self.cache_bytes += data.nbytes
@@ -300,6 +346,7 @@ class MeshStream:
                     if self._current(generation):
                         self.target.replace(level, staged)
                         self.displayed_level = level
+                        self.displayed_keys = frozenset(key for key, _data in staged)
                 completed.set_result(None)
             except Exception as error:  # noqa: BLE001 - relay renderer errors to wait()
                 if not completed.done():
@@ -318,11 +365,33 @@ class MeshStream:
         if future is not None:
             future.result(timeout)
 
+    def snapshot(self) -> MeshStreamSnapshot:
+        """Return the current observable status, including failures and limits."""
+        with self._lock:
+            return MeshStreamSnapshot(
+                self._generation,
+                self.state,
+                self.requested_level,
+                self.displayed_level,
+                self.reads,
+                self.cache_hits,
+                self.stale_reads,
+                self.evictions,
+                self.cache_bytes,
+                self.staged_bytes,
+                self.phase_chunks_done,
+                self.phase_chunks_total,
+                len(self.displayed_keys),
+                self.limited,
+                str(self.error) if self.error else None,
+            )
+
     def close(self) -> None:
         with self._lock:
             if self._closed:
                 return
             self._closed = True
+            self.state = "closed"
             self._generation += 1
         if self._owns_runtime:
             self.runtime.close()

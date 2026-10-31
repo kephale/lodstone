@@ -27,6 +27,7 @@ class PyGFXMeshTarget:
         scene.add(self.group)
         self.memory_limit = memory_limit
         self.submitted_bytes = 0
+        self.peak_submitted_bytes = 0
         self.level: int | None = None
 
     def replace(self, level: int, chunks: Sequence[tuple[MeshKey, MeshData]]) -> None:
@@ -68,6 +69,7 @@ class PyGFXMeshTarget:
         if objects:
             self.group.add(*objects)
         self.level, self.submitted_bytes = level, size
+        self.peak_submitted_bytes = max(self.peak_submitted_bytes, size)
 
     def close(self) -> None:
         self.group.clear()
