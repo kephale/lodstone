@@ -20,6 +20,7 @@ from .model import (
     PerformanceSnapshot,
     Plan,
     PlanDelta,
+    PlanSummary,
     Region,
     Status,
     StreamDiagnostics,
@@ -92,6 +93,7 @@ class Stream:
         self._available: set[TileKey] = set()
         self._lease: Any | None = None
         self._plan: Plan | None = None
+        self._view: View | None = None
         self._delta = PlanDelta(frozenset(), (), (), frozenset())
         self._status_callbacks: list[StatusCallback] = []
         self._closed = False
@@ -148,13 +150,15 @@ class Stream:
         with self._state_lock:
             status = self._status
             diagnostics = self._diagnostics
+            view = self._view
+            plan = None if self._plan is None else PlanSummary.of(self._plan)
         metrics = getattr(self.target, "performance_metrics", None)
         target = metrics() if metrics is not None else TargetDiagnostics()
         if not isinstance(target, TargetDiagnostics):
             raise TypeError(
                 "target performance_metrics() must return TargetDiagnostics"
             )
-        return PerformanceSnapshot(status, diagnostics, target)
+        return PerformanceSnapshot(status, diagnostics, target, view, plan)
 
     @property
     def cache_events(self) -> tuple[ChunkEvent, ...]:
@@ -237,6 +241,7 @@ class Stream:
             generation = self._generation
             self._delta = plan.delta(self._plan)
             self._plan = plan
+            self._view = view
             available = frozenset(self._available)
             cache_chunks = self._diagnostics.cache_chunks
             cache_bytes = self._diagnostics.cache_bytes
