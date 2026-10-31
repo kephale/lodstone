@@ -10,6 +10,8 @@ the 0.1 alpha series and may change between prereleases.
   from a host callback replans instead of being dropped.
 - Add `clims` for fixed contrast limits on dense targets.
 - Add `orthographic_world_to_clip` for building reproducible camera views.
+- Record the submitted view and a plan summary in performance snapshots and
+  records.
 
 ## 0.1.0a2 - 2026-08-30
 
