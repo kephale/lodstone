@@ -196,3 +196,56 @@ def clamp_region_to_budget(
     return Region(
         tuple(int(value) for value in start), tuple(int(value) for value in stop)
     )
+
+
+def orthographic_world_to_clip(
+    center: Sequence[float],
+    right: Sequence[float],
+    up: Sequence[float],
+    forward: Sequence[float],
+    *,
+    height: float,
+    viewport: tuple[int, int],
+    depth: float,
+) -> np.ndarray:
+    """Return a ``View.world_to_clip`` matrix for an orthographic 3-D camera.
+
+    All vectors use displayed-axis order, such as ZYX. ``right`` and ``up`` are
+    the world directions of screen +X and +Y, and ``forward`` points from the
+    viewer into the scene, so clip Z runs from -1 near to +1 far. It is explicit
+    because handedness depends on the host and on axis order. ``height`` and
+    ``depth`` are the visible world extents; width follows the viewport.
+    """
+
+    center_array = np.asarray(center, dtype=np.float64)
+    axes = [np.asarray(axis, dtype=np.float64) for axis in (right, up, forward)]
+    if center_array.shape != (3,) or any(axis.shape != (3,) for axis in axes):
+        raise ValueError("center, right, up, and forward must be 3-D vectors")
+    if not np.all(np.isfinite(center_array)):
+        raise ValueError("center must be finite")
+    if height <= 0 or depth <= 0 or min(viewport) <= 0:
+        raise ValueError("height, depth, and viewport must be positive")
+    norms = [float(np.linalg.norm(axis)) for axis in axes]
+    if not all(np.isfinite(norm) and norm > 0 for norm in norms):
+        raise ValueError("right, up, and forward must be finite and nonzero")
+    right_axis, up_axis, forward_axis = (
+        axis / norm for axis, norm in zip(axes, norms, strict=True)
+    )
+    if (
+        max(
+            abs(float(right_axis @ up_axis)),
+            abs(float(right_axis @ forward_axis)),
+            abs(float(up_axis @ forward_axis)),
+        )
+        > 1e-9
+    ):
+        raise ValueError("right, up, and forward must be perpendicular")
+
+    half_height = height / 2
+    half_width = half_height * viewport[0] / viewport[1]
+    matrix = np.eye(4, dtype=np.float64)
+    matrix[0, :3] = right_axis / half_width
+    matrix[1, :3] = up_axis / half_height
+    matrix[2, :3] = forward_axis / (depth / 2)
+    matrix[:3, 3] = -matrix[:3, :3] @ center_array
+    return matrix
