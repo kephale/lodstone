@@ -341,6 +341,56 @@ def test_ndv_ignores_camera_events_caused_by_its_own_publication(ortho_view, wai
         controller.close()
 
 
+def test_camera_set_by_on_presented_replans(ortho_view, wait) -> None:
+    source = SimulatedSource([np.ones((16, 16), np.uint8)], chunks=[(8, 8)])
+    canvas = CameraCanvas()
+    moved = []
+
+    def move_camera_once(publication) -> None:
+        if not moved:
+            moved.append(True)
+            canvas.world_to_clip[0, -1] -= 0.5
+            canvas.cameraChanged.emit()
+
+    controller = NDVController(
+        canvas,
+        source,
+        camera_debounce_ms=10,
+        on_presented=move_camera_once,
+    )
+    try:
+        view = ortho_view((16, 16), viewport=(64, 64))
+        canvas.world_to_clip = view.world_to_clip.copy()
+        controller.update(view)
+        wait(lambda: controller.stream.status.generation == 2)
+        wait(lambda: controller.stream.status.state == "complete")
+    finally:
+        controller.close()
+
+
+def test_camera_set_by_a_status_callback_replans(ortho_view, wait) -> None:
+    source = SimulatedSource([np.ones((16, 16), np.uint8)], chunks=[(8, 8)])
+    canvas = CameraCanvas()
+    moved = []
+
+    def move_camera_on_complete(status) -> None:
+        if status.state == "complete" and not moved:
+            moved.append(True)
+            canvas.world_to_clip[0, -1] -= 0.5
+            canvas.cameraChanged.emit()
+
+    controller = NDVController(canvas, source, camera_debounce_ms=10)
+    controller.stream.on_status_changed(move_camera_on_complete)
+    try:
+        view = ortho_view((16, 16), viewport=(64, 64))
+        canvas.world_to_clip = view.world_to_clip.copy()
+        controller.update(view)
+        wait(lambda: controller.stream.status.generation == 2)
+        wait(lambda: controller.stream.status.state == "complete")
+    finally:
+        controller.close()
+
+
 def test_ndv_focus_policy_can_be_tuned_and_replanned(ortho_view, wait) -> None:
     source = SimulatedSource([np.ones((16, 16), np.uint8)], chunks=[(8, 8)])
     controller = NDVController(Canvas(), source)

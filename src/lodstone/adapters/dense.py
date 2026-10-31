@@ -148,6 +148,7 @@ class DenseTarget:
         self.focus_depth_weight = float(focus_depth_weight)
         self.focus_depth_target = focus_depth_target
         self.fit_on_first_publication = fit_on_first_publication
+        self.publishing = False
         self.resident = ResidentArrays(pyramid, compose=True)
         self.handles: dict[int, DenseHandle] = {}
         self.publications: dict[int, DensePublication] = {}
@@ -249,6 +250,20 @@ class DenseTarget:
         phase: int,
         publication: DensePublication,
     ) -> None:
+        self.publishing = True
+        try:
+            published = self._publish(view, plan, publication)
+        finally:
+            self.publishing = False
+        if published and self.on_presented is not None:
+            self.on_presented(publication)
+
+    def _publish(
+        self,
+        view: View,
+        plan: Plan,
+        publication: DensePublication,
+    ) -> bool:
         ndim = len(view.displayed_axes)
         self.canvas.set_ndim(ndim)
         wants_level = any(tile.level == publication.level for tile in plan.wanted)
@@ -261,7 +276,7 @@ class DenseTarget:
         ):
             # Stream phases also complete when every context tile was cached.
             # Keep the existing visual instead of uploading the same array.
-            return
+            return False
         handle = self.handles.get(publication.level)
         first_publication = not self.handles
         if handle is None:
@@ -285,13 +300,19 @@ class DenseTarget:
             self._mask_context(publication)
         self.canvas.refresh()
         self._record_presentation()
-        if self.on_presented is not None:
-            self.on_presented(publication)
+        return True
 
     def discard(self, keys: Collection[TileKey]) -> None:
         self.resident.discard(keys)
 
     def complete(self, view: View, plan: Plan) -> None:
+        self.publishing = True
+        try:
+            self._finish(plan)
+        finally:
+            self.publishing = False
+
+    def _finish(self, plan: Plan) -> None:
         self.resident.complete(plan, retain_levels=True)
         keep = {self._context_level, plan.target_level}
         for level in tuple(self.handles):
@@ -475,7 +496,6 @@ class DenseController:
         self._camera_deadline = 0.0
         self._camera_generation = 0
         self._closed = False
-        self._presenting = False
         self.runtime = runtime or Runtime()
         self._owns_runtime = runtime is None
         self.target = self._make_target(
@@ -500,7 +520,7 @@ class DenseController:
         self.stream = Stream(
             source,
             self.target,
-            dispatch=self._dispatch_presentation,
+            dispatch=self._dispatch,
             runtime=self.runtime,
             **stream_options,
         )
@@ -565,7 +585,7 @@ class DenseController:
         return None
 
     def _camera_changed(self) -> None:
-        if self._last_view is None or self._presenting:
+        if self._last_view is None or self.target.publishing:
             return
         viewport, world_to_clip = self.canvas.camera_state()
         # Scene-bound changes can alter only the depth/near-far transform when
@@ -614,16 +634,6 @@ class DenseController:
                     continue
             self.stream.submit(view, plan)
             self._notify_targeted(plan)
-
-    def _dispatch_presentation(self, callback: Callable[[], None]) -> None:
-        def guarded() -> None:
-            self._presenting = True
-            try:
-                callback()
-            finally:
-                self._presenting = False
-
-        self._dispatch(guarded)
 
     def _notify_targeted(self, plan: Plan) -> None:
         callback = self._on_targeted
