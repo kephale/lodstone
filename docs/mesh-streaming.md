@@ -5,6 +5,25 @@ triangle meshes by stored face ownership, culls conservative fragment bounds,
 streams a complete coarse level before refinement, and replaces whole phases.
 The existing array Source, Planner, Stream and viewer integrations are unchanged.
 
+## Run on another machine without an existing environment
+
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and Git,
+then run this command in a terminal (macOS, Linux or PowerShell):
+
+```text
+uv run https://raw.githubusercontent.com/kephale/lodstone/refs/heads/feat/zarr-vectors-mesh-streaming/examples/zarr_vectors_mesh.py
+```
+
+The script declares its own Python version and pinned dependencies, including
+both repository revisions. uv creates an isolated environment and downloads
+Python if needed; no manual environment setup or repository clones are needed.
+First launch needs internet access. Use a local desktop with working graphics
+drivers. Drag to orbit and scroll to zoom between levels of detail.
+
+For images instead of a window, append `--offscreen mesh-renders` to the command.
+This saves the two PNGs and metrics in a `mesh-renders` folder. The built-in
+fixture is a synthetic sphere, not a biological dataset.
+
 ## Install the two branches
 
 Clone the repositories next to each other:

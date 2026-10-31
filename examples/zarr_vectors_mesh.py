@@ -1,3 +1,17 @@
+# /// script
+# requires-python = ">=3.13,<3.14"
+# dependencies = [
+#   "lodstone @ git+https://github.com/kephale/lodstone@5e3a306129b1917952117ce701ec12fe2af44af3",
+#   "zarr-vectors @ git+https://github.com/kephale/zarr-vectors-py@32bbd4db6656eb493fc1c497716ae689e5f146ea",
+#   "numpy==2.5.1",
+#   "zarr==3.3.0",
+#   "pygfx==0.17.0",
+#   "rendercanvas==2.7.2",
+#   "glfw==2.11.0",
+#   "imageio==2.38.1",
+#   "pillow==13.0.0",
+# ]
+# ///
 """Explore raw multiscale Zarr Vectors surfaces, or run a synthetic smoke demo.
 
 See docs/mesh-streaming.md for installing the companion reader branch.
