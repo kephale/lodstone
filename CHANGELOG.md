@@ -5,6 +5,8 @@ the 0.1 alpha series and may change between prereleases.
 
 ## Unreleased
 
+- Add `fit_on_first_publication` so a dense host can keep its own camera.
+
 ## 0.1.0a2 - 2026-08-30
 
 - Add a SceneX dense target and camera-aware controller based on the generic

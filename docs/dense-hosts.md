@@ -35,6 +35,9 @@ Camera events are trailing-edge debounced. Events caused by Lodstone's own
 publication are ignored, and planning happens on the controller's camera worker
 rather than the interaction thread.
 
+`DenseTarget` fits the canvas to the data on its first publication. A host that
+has already placed its camera passes `fit_on_first_publication=False`.
+
 ## Lifecycle
 
 The host owns native visuals; `DenseTarget` owns the handles it creates. Closing

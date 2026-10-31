@@ -275,6 +275,19 @@ def test_ndv_coarse_mask_preserves_context_beneath_empty_fine_space(
         controller.close()
 
 
+def test_dense_target_can_keep_the_host_camera(ortho_view, wait) -> None:
+    source = SimulatedSource([np.ones((16, 16), np.uint8)], chunks=[(8, 8)])
+    canvas = Canvas()
+    controller = NDVController(canvas, source, fit_on_first_publication=False)
+    try:
+        controller.update(ortho_view((16, 16), viewport=(64, 64)))
+        wait(lambda: controller.stream.status.state == "complete")
+        assert canvas.handle is not None
+        assert canvas.range_resets == 0
+    finally:
+        controller.close()
+
+
 def test_ndv_camera_updates_are_debounced_off_interaction_thread(ortho_view, wait):
     data = np.arange(32 * 32, dtype=np.uint16).reshape(32, 32)
     source = SimulatedSource([data], chunks=[(8, 8)])
