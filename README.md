@@ -162,8 +162,9 @@ Experimental geometry support is being developed separately from the array
 integrations: see [Zarr Vectors mesh streaming](docs/mesh-streaming.md) for the
 companion reader branch, runnable PyGFX example, memory limits and exclusions.
 
-The [biological image/surface demo](docs/biological-mesh.md) adds a one-command
-Nessys dataset viewer with paired fluorescence, retained reference meshes,
+The [biological surface demo](docs/biological-mesh.md) adds a one-command
+viewer for five branching neuron meshes, bounded smoothing and raw comparison.
+The optional Nessys sample provides paired fluorescence, retained reference meshes,
 chunk overlays, measured store reads, and process-memory diagnostics.
 
 | Viewer | Integration | Status |

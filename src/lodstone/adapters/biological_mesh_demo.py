@@ -1,4 +1,4 @@
-"""Public Nessys image/surface demo; preprocessing preserves reference geometry."""
+"""Public biological image/surface demo with raw and smoothed references."""
 
 from __future__ import annotations
 
@@ -17,17 +17,18 @@ from ..biological_mesh import prepare_biological_mesh
 from ..mesh import MeshData, MeshStream
 from ..mesh_diagnostics import ProcessMemoryMonitor, diagnostic_snapshot
 from ..model import View
+from ..neuron_mesh import prepare_neuron_mesh
 from ..sources.zarr_vectors import ZarrVectorsMeshSource
 from .pygfx_mesh import PyGFXMeshTarget
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    default_cache = (
-        Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
-        / "lodstone/idr0062-mesh-v1"
+    parser.add_argument(
+        "--sample", choices=("hemibrain", "nessys"), default="hemibrain"
     )
-    parser.add_argument("--cache", type=Path, default=default_cache)
+    parser.add_argument("--smooth-iterations", type=int, default=20)
+    parser.add_argument("--cache", type=Path)
     parser.add_argument("--offscreen", type=Path)
     parser.add_argument("--prepare-only", action="store_true")
     parser.add_argument("--memory-mib", type=float, default=64.0)
@@ -42,7 +43,28 @@ def main() -> None:
         help="exercise the visible read-failure state",
     )
     args = parser.parse_args()
-    report = prepare_biological_mesh(args.cache)
+    if args.smooth_iterations < 0:
+        parser.error("--smooth-iterations must be nonnegative")
+    if args.cache is None:
+        args.cache = (
+            Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
+            / "lodstone"
+            / (
+                "hemibrain-neurons-v1"
+                if args.sample == "hemibrain"
+                else "idr0062-mesh-v1"
+            )
+        )
+    report = (
+        prepare_neuron_mesh(args.cache, smooth_iterations=args.smooth_iterations)
+        if args.sample == "hemibrain"
+        else prepare_biological_mesh(args.cache)
+    )
+    neuron_sample = report.get("sample") == "hemibrain"
+    title = report.get("display_title", "Nessys / IDR0062 · nuclei")
+    credit = report.get(
+        "credit", "Blin et al. 2019 · CC BY 4.0 · supplied nucleus labels"
+    )
     if args.prepare_only:
         print(json.dumps(report, indent=2))
         return
@@ -52,17 +74,21 @@ def main() -> None:
         "rendercanvas.offscreen" if args.offscreen else "rendercanvas.auto"
     )
     canvas = backend.RenderCanvas(
-        size=(1000, 760), title="Lodstone · Nessys nuclei · micrometers"
+        size=(1000, 760), title=f"Lodstone · {title} · micrometers"
     )
     renderer = gfx.WgpuRenderer(canvas)
     scene = gfx.Scene()
     scene.add(gfx.Background(None, gfx.BackgroundMaterial("#101722")))
     camera = gfx.PerspectiveCamera(45, 1000 / 760)
-    with np.load(report["inputs_path"]) as inputs:
-        image = inputs["image"]
-    spacing_xyz = np.asarray(report["spacing_zyx_um"])[::-1]
-    origin_xyz = np.asarray(report["origin_xyz_um"])
-    extent = origin_xyz + (np.asarray(image.shape[1:])[::-1] - 1) * spacing_xyz
+    image = None
+    spacing_xyz = np.asarray(report.get("spacing_zyx_um", [1.0, 1.0, 1.0]))[::-1]
+    if neuron_sample:
+        origin_xyz, extent = np.asarray(report["bounds_xyz_um"])
+    else:
+        with np.load(report["inputs_path"]) as inputs:
+            image = inputs["image"]
+        origin_xyz = np.asarray(report["origin_xyz_um"])
+        extent = origin_xyz + (np.asarray(image.shape[-3:])[::-1] - 1) * spacing_xyz
     center = (origin_xyz + extent) / 2
     camera.show_object(
         (*center, float(np.linalg.norm(extent - origin_xyz) / 2)),
@@ -72,19 +98,20 @@ def main() -> None:
     controller = gfx.OrbitController(camera, register_events=renderer)
     images = gfx.Group()
     scene.add(images)
-    for index, color in [(0, (0.0, 0.85, 1.0)), (1, (1.0, 0.55, 0.1))]:
-        grid = np.ascontiguousarray(image[index])
-        clim = (float(np.percentile(grid, 65)), float(np.percentile(grid, 99.7)))
-        colormap = gfx.Texture(
-            np.array([[0.0, 0.0, 0.0], color], dtype=np.float32), dim=1
-        )
-        volume = gfx.Volume(
-            gfx.Geometry(grid=grid),
-            gfx.VolumeMipMaterial(clim=clim, map=colormap, opacity=0.35, gamma=0.8),
-        )
-        volume.local.scale = tuple(spacing_xyz)
-        volume.local.position = tuple(origin_xyz)
-        images.add(volume)
+    if image is not None:
+        for index, color in [(0, (0.0, 0.85, 1.0)), (1, (1.0, 0.55, 0.1))]:
+            grid = np.ascontiguousarray(image[index])
+            clim = (float(np.percentile(grid, 65)), float(np.percentile(grid, 99.7)))
+            colormap = gfx.Texture(
+                np.array([[0.0, 0.0, 0.0], color], dtype=np.float32), dim=1
+            )
+            volume = gfx.Volume(
+                gfx.Geometry(grid=grid),
+                gfx.VolumeMipMaterial(clim=clim, map=colormap, opacity=0.35, gamma=0.8),
+            )
+            volume.local.scale = tuple(spacing_xyz)
+            volume.local.position = tuple(origin_xyz)
+            images.add(volume)
     source = ZarrVectorsMeshSource(
         report["mesh_path"], level_errors=report["level_errors_um"], track_io=True
     )
@@ -115,17 +142,28 @@ def main() -> None:
     scene.add(bound_group)
     displayed_bounds = None
     reference: PyGFXMeshTarget | None = None
+    reference_mode = "smooth"
     chunk_bounds = {
         (level, chunk.key): chunk.bounds
         for level, data in enumerate(source.levels)
         for chunk in data.chunks
     }
 
-    def show_reference() -> None:
-        nonlocal reference
+    def show_reference(raw: bool = False) -> None:
+        nonlocal reference, reference_mode
+        mode = "raw" if raw and neuron_sample else "smooth"
+        if reference is not None and reference_mode != mode:
+            reference.close()
+            reference = None
+        reference_mode = mode
         if reference is None:
             reference = PyGFXMeshTarget(scene, memory_limit=64 << 20)
-            with np.load(report["reference_path"]) as original:
+            path = (
+                report["raw_reference_path"]
+                if mode == "raw"
+                else report["reference_path"]
+            )
+            with np.load(path) as original:
                 chunks = [
                     (
                         (0, (o["label_id"],)),
@@ -192,16 +230,35 @@ def main() -> None:
         text.material.color = (
             "#ff6666" if status.error else "#ffd67b" if status.limited else "white"
         )
+        coverage = report.get("coverage")
+        coverage_text = (
+            f"{coverage['meshed_labels']}/{coverage['source_labels']} bundled neuron meshes · no added spatial crop"
+            if coverage
+            else f"{len(report['objects'])} selected complete nuclei · other image objects unmeshed"
+        )
+        treatment = (
+            f"Taubin {report['smoothing']['iterations']} pairs · max movement {report['smoothing']['max_displacement_um']:.3f} µm"
+            if neuron_sample
+            else "Raw marching cubes"
+        )
+        reference_label = (
+            "RAW SOURCE SURFACE"
+            if reference_mode == "raw"
+            else "SMOOTH REFERENCE"
+            if neuron_sample
+            else "RETAINED REFERENCE"
+        )
         text.set_text(
-            f"Nessys / IDR0062 — 6 complete labeled nuclei — micrometers\n"
-            f"{status.state.upper()} | {'REFERENCE (not streamed)' if reference_visible else f'LOD {status.displayed_level}'} | phase {status.phase_chunks_done}/{status.phase_chunks_total}\n"
+            f"{title} — micrometers\n"
+            f"{coverage_text} | {treatment}\n"
+            f"{status.state.upper()} | {f'{reference_label} (not streamed)' if reference_visible else f'LOD {status.displayed_level}'} | phase {status.phase_chunks_done}/{status.phase_chunks_total}\n"
             f"Mesh cache {status.cache_bytes / (1 << 20):.2f}/{args.memory_mib:g} MiB | active mesh buffers {active_buffer_bytes / (1 << 20):.2f} MiB\n"
             f"Store {io.bytes_returned / (1 << 20):.2f} MiB ({io.metadata_bytes / (1 << 20):.2f} metadata) | {io.requests} store reads\n"
             f"Cache hits {status.cache_hits} | evictions {status.evictions} | stale reads {status.stale_reads}\n"
             f"Process RSS {usage['rss_bytes'] / (1 << 20):.1f} MiB; sampled peak {usage['sampled_peak_rss_bytes'] / (1 << 20):.1f} MiB | GPU allocations: unavailable\n"
-            "V image · M surface · L auto/coarse/fine · B bounds · R retained reference\n"
-            f"{status.error or ('Refinement exceeded budget; coarse phase retained' if status.limited else 'Drag to orbit; scroll to zoom')}\n"
-            "Blin et al. 2019 · CC BY 4.0 · surfaces derived from supplied labels"
+            f"{'V image · ' if image is not None else ''}M surface · {'L auto/coarse/fine · ' if len(source.levels) > 1 else 'Fine only (coarse changed topology) · '}B bounds · R reference{' · S raw' if neuron_sample else ''}\n"
+            f"{status.error or (('Phase exceeds budget; current surface retained' if status.displayed_level is not None else 'Visible phase exceeds budget; increase --memory-mib') if status.limited else 'Drag to orbit; scroll to zoom')}\n"
+            f"{credit}"
         )
         renderer.render(scene, camera, flush=False)
         renderer.render(overlay, overlay_camera)
@@ -212,13 +269,21 @@ def main() -> None:
         if event.key.lower() == "v":
             images.visible = not images.visible
         elif event.key.lower() == "m":
-            target.group.visible = not target.group.visible
+            active = (
+                reference.group
+                if reference is not None and reference.group.visible
+                else target.group
+            )
+            active.visible = not active.visible
         elif event.key.lower() == "l":
-            selected_level = {None: 1, 1: 0, 0: None}[selected_level]
+            if len(source.levels) > 1:
+                selected_level = {None: 1, 1: 0, 0: None}[selected_level]
         elif event.key.lower() == "b":
             bound_group.visible = not bound_group.visible
         elif event.key.lower() == "r":
             show_reference()
+        elif event.key.lower() == "s" and neuron_sample:
+            show_reference(raw=True)
         canvas.request_draw()
 
     try:
@@ -226,7 +291,7 @@ def main() -> None:
             args.offscreen.mkdir(parents=True, exist_ok=True)
             iio = import_module("imageio.v3")
             evidence = []
-            for level in (1, 0):
+            for level in reversed(range(len(source.levels))):
                 stream.update(snapshot(), level=level)
                 try:
                     stream.wait(timeout=120)
@@ -263,6 +328,14 @@ def main() -> None:
                 args.offscreen / "retained-reference.png", np.asarray(canvas.draw())
             )
             show_reference()
+            if neuron_sample:
+                images.visible = False
+                show_reference(raw=True)
+                canvas.request_draw(paint)
+                iio.imwrite(
+                    args.offscreen / "raw-reference.png", np.asarray(canvas.draw())
+                )
+                show_reference(raw=True)
             if args.diagnostic_replay:
                 replay = []
                 source.io.reset()

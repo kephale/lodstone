@@ -232,7 +232,6 @@ def prepare_biological_mesh(cache: Path, *, max_objects: int = 6) -> dict:
         return report
     _image, labels, spacing, manifest = download_crop(cache)
     simplifier = import_module("fast_simplification")
-    building = import_module("zarr_vectors.building")
     ndimage = import_module("scipy.ndimage")
     boundary = np.unique(
         np.concatenate(
@@ -327,36 +326,7 @@ def prepare_biological_mesh(cache: Path, *, max_objects: int = 6) -> dict:
             }
         )
     np.savez_compressed(output / "reference.npz", **reference)
-    root = output / "mesh.zarrvectors"
-    for index, blocks in enumerate(all_levels):
-        vertices, faces, ids = [], [], []
-        count = 0
-        for v, f, object_id in blocks:
-            vertices.append(v)
-            faces.append(f + count)
-            ids.append(np.full(len(v), object_id, dtype=np.int64))
-            count += len(v)
-        destination = root if index == 0 else output / "coarse.zarrvectors"
-        building.write_mesh(
-            destination,
-            np.concatenate(vertices).astype(np.float32),
-            np.concatenate(faces),
-            object_ids=np.concatenate(ids),
-            chunk_shape=(8.0, 8.0, 8.0),
-        )
-        if index:
-            shutil.copytree(destination / "0", root / str(index), dirs_exist_ok=True)
-            node = root / str(index) / "zarr.json"
-            metadata = json.loads(node.read_text())
-            metadata["attributes"]["zarr_vectors_level"]["level"] = index
-            node.write_text(json.dumps(metadata))
-    node = root / "zarr.json"
-    metadata = json.loads(node.read_text())
-    multiscales = metadata["attributes"]["multiscales"][0]
-    second = dict(multiscales["datasets"][0])
-    second["path"] = "1"
-    multiscales["datasets"] = [multiscales["datasets"][0], second]
-    node.write_text(json.dumps(metadata))
+    root = write_surface_levels(output, all_levels)
     # Measured relative to the retained fine reference, not the unknown tissue surface.
     report = {
         **ATTRIBUTION,
@@ -401,16 +371,33 @@ def verify_reference(report: dict) -> dict:
         ]
 
     expected = []
-    with np.load(report["inputs_path"]) as inputs:
-        labels = inputs["labels"]
-    spacing = np.asarray(report["spacing_zyx_um"])
-    origin = np.asarray(report["origin_xyz_um"])[::-1]
+    from_neuron_mesh = report.get("sample") == "hemibrain"
+    if report.get("sample") == "hemibrain":
+        from .neuron_mesh import load_neuron_meshes
+
+        meshes, _ = load_neuron_meshes(Path(report["source_cache"]))
+        source_geometry = {i: (v, f) for i, v, f in meshes}
+    else:
+        with np.load(report["inputs_path"]) as inputs:
+            labels = inputs["labels"]
+        spacing = np.asarray(report["spacing_zyx_um"])
+        origin = np.asarray(report["origin_xyz_um"])[::-1]
+        source_geometry = {
+            item["label_id"]: label_surface(labels == item["label_id"], spacing, origin)
+            for item in report["objects"]
+        }
     with np.load(report["reference_path"]) as original:
         for item in report["objects"]:
             object_id = item["label_id"]
-            regenerated_v, regenerated_f = label_surface(
-                labels == object_id, spacing, origin
-            )
+            regenerated_v, regenerated_f = source_geometry[object_id]
+            if report.get("smoothing"):
+                from .neuron_mesh import smooth_surface
+
+                regenerated_v, _ = smooth_surface(
+                    regenerated_v,
+                    regenerated_f,
+                    **report["smoothing"],
+                )
             np.testing.assert_array_equal(
                 original[f"vertices_{object_id}"], regenerated_v
             )
@@ -433,5 +420,46 @@ def verify_reference(report: dict) -> dict:
         "owner_cells": owners,
         "oriented_triangle_sha256": sha256(b"".join(actual)),
         "exact_after_declared_float32_quantization": True,
-        "retained_reference_matches_label_extraction": True,
+        "retained_reference_matches_label_extraction": not from_neuron_mesh,
+        "retained_reference_matches_source_geometry": True,
+        "declared_smoothing_regenerated": bool(report.get("smoothing")),
     }
+
+
+def write_surface_levels(output: Path, all_levels: list) -> Path:
+    """Write independently generated raw LODs with physical XYZ coordinates."""
+    building = import_module("zarr_vectors.building")
+    root = output / "mesh.zarrvectors"
+    for index, blocks in enumerate(all_levels):
+        vertices, faces, ids = [], [], []
+        count = 0
+        for v, f, object_id in blocks:
+            vertices.append(v)
+            faces.append(f + count)
+            ids.append(np.full(len(v), object_id, dtype=np.int64))
+            count += len(v)
+        destination = root if index == 0 else output / "coarse.zarrvectors"
+        building.write_mesh(
+            destination,
+            np.concatenate(vertices).astype(np.float32),
+            np.concatenate(faces),
+            object_ids=np.concatenate(ids),
+            chunk_shape=(8.0, 8.0, 8.0),
+        )
+        if index:
+            shutil.copytree(destination / "0", root / str(index), dirs_exist_ok=True)
+            node = root / str(index) / "zarr.json"
+            metadata = json.loads(node.read_text())
+            metadata["attributes"]["zarr_vectors_level"]["level"] = index
+            node.write_text(json.dumps(metadata))
+    node = root / "zarr.json"
+    metadata = json.loads(node.read_text())
+    multiscales = metadata["attributes"]["multiscales"][0]
+    datasets = []
+    for index in range(len(all_levels)):
+        dataset = dict(multiscales["datasets"][0])
+        dataset["path"] = str(index)
+        datasets.append(dataset)
+    multiscales["datasets"] = datasets
+    node.write_text(json.dumps(metadata))
+    return root
