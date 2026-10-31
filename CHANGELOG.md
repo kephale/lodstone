@@ -6,6 +6,8 @@ the 0.1 alpha series and may change between prereleases.
 ## Unreleased
 
 - Add `fit_on_first_publication` so a dense host can keep its own camera.
+- Ignore camera events only during Lodstone's own publication, so a camera moved
+  from a host callback replans instead of being dropped.
 
 ## 0.1.0a2 - 2026-08-30
 

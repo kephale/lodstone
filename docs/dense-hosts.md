@@ -33,7 +33,8 @@ coordinates for perspective cameras.
 
 Camera events are trailing-edge debounced. Events caused by Lodstone's own
 publication are ignored, and planning happens on the controller's camera worker
-rather than the interaction thread.
+rather than the interaction thread. A camera change made from a host callback,
+such as `on_presented`, is a real change and replans.
 
 `DenseTarget` fits the canvas to the data on its first publication. A host that
 has already placed its camera passes `fit_on_first_publication=False`.
