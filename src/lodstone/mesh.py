@@ -201,6 +201,7 @@ class MeshStream:
         self._closed = False
         self._cache: OrderedDict[MeshKey, MeshData] = OrderedDict()
         self._future: Future | None = None
+        self._pending: set[Future] = set()
         self.limited = False
         self.displayed_level: int | None = None
         self.error: BaseException | None = None
@@ -235,6 +236,12 @@ class MeshStream:
                 self._run_after(previous, generation, view, selected),
                 self.runtime.loop,
             )
+            self._pending.add(self._future)
+            self._future.add_done_callback(self._forget_future)
+
+    def _forget_future(self, future: Future) -> None:
+        with self._lock:
+            self._pending.discard(future)
 
     async def _run_after(
         self, previous: Future | None, generation: int, view: View, selected: int
@@ -253,8 +260,11 @@ class MeshStream:
                 pinned: set[MeshKey] = set()
                 phase_bytes = 0
                 chunks = visible_chunks(self.source.levels[level], view)
-                self.phase_chunks_done, self.phase_chunks_total = 0, len(chunks)
-                self.staged_bytes = 0
+                with self._lock:
+                    if not self._current(generation):
+                        return
+                    self.phase_chunks_done, self.phase_chunks_total = 0, len(chunks)
+                    self.staged_bytes = 0
                 for chunk in chunks:
                     if not self._current(generation):
                         return
@@ -287,8 +297,11 @@ class MeshStream:
                         return
                     pinned.add(key)
                     staged.append((key, data))
-                    self.staged_bytes = phase_bytes
-                    self.phase_chunks_done += 1
+                    with self._lock:
+                        if not self._current(generation):
+                            return
+                        self.staged_bytes = phase_bytes
+                        self.phase_chunks_done += 1
                 if not self._current(generation):
                     return
                 try:
@@ -387,14 +400,24 @@ class MeshStream:
             )
 
     def close(self) -> None:
+        """Cancel stream-owned work without stopping a borrowed runtime.
+
+        Cancellation cannot interrupt a backend's already running worker thread.
+        The backend must serialize its own close with those reads, as the Zarr
+        Vectors source does. Closed generations can never publish their result.
+        """
         with self._lock:
             if self._closed:
                 return
             self._closed = True
             self.state = "closed"
             self._generation += 1
+            pending = tuple(self._pending)
+            self._cache.clear()
+            self.cache_bytes = self.staged_bytes = 0
+        # Cancel every submitted generation: cancelling only the latest one
+        # misses predecessors if that coroutine has not started awaiting them.
+        for future in pending:
+            future.cancel()
         if self._owns_runtime:
             self.runtime.close()
-        with self._lock:
-            self._cache.clear()
-            self.cache_bytes = 0

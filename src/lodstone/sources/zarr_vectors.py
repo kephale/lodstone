@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from collections.abc import Sequence
+from contextlib import ExitStack
 from functools import partial
 from importlib import import_module
 from itertools import pairwise, product
@@ -59,18 +60,19 @@ class ZarrVectorsMeshSource:
                     source, read_only=True
                 )
             source = counted_store(source, self.io)
+        errors = tuple(float(error) for error in level_errors)
+        if any(not np.isfinite(error) or error < 0 for error in errors):
+            raise ValueError("mesh level errors must be finite and nonnegative")
         indices = (
-            tuple(range(len(level_errors)))
-            if stored_levels is None
-            else tuple(stored_levels)
+            tuple(range(len(errors))) if stored_levels is None else tuple(stored_levels)
         )
         if (
             not indices
-            or len(indices) != len(level_errors)
+            or len(indices) != len(errors)
             or len(set(indices)) != len(indices)
         ):
             raise ValueError("provide distinct stored levels and one error per level")
-        if any(b < a for a, b in pairwise(level_errors)):
+        if any(b < a for a, b in pairwise(errors)):
             raise ValueError("level errors must be ordered finest to coarsest")
         self._transform = np.array(
             np.eye(4) if transform is None else transform, dtype=float, copy=True
@@ -80,22 +82,34 @@ class ZarrVectorsMeshSource:
         if not np.array_equal(self._transform[3], [0, 0, 0, 1]):
             raise ValueError("mesh transform must be affine")
         self._lock = threading.Lock()
-        self._readers = tuple(MeshReader(source, level=index) for index in indices)
-        if any(reader.width != 3 for reader in self._readers):
-            raise NotImplementedError("only triangle meshes are currently supported")
-        levels = []
-        for reader, error in zip(self._readers, level_errors, strict=True):
-            chunks = []
-            for chunk in reader.chunks:
-                corners = np.asarray(list(product(*zip(*chunk.bounds))), dtype=float)
-                moved = corners @ self._transform[:3, :3].T + self._transform[:3, 3]
-                chunks.append(
-                    MeshChunk(
-                        chunk.key, (tuple(moved.min(axis=0)), tuple(moved.max(axis=0)))
-                    )
+        with ExitStack() as cleanup:
+            readers = []
+            for index in indices:
+                reader = MeshReader(source, level=index)
+                cleanup.callback(reader.close)
+                readers.append(reader)
+            if any(reader.width != 3 for reader in readers):
+                raise NotImplementedError(
+                    "only triangle meshes are currently supported"
                 )
-            levels.append(MeshLevel(tuple(chunks), float(error)))
-        self.levels = tuple(levels)
+            levels = []
+            for reader, error in zip(readers, errors, strict=True):
+                chunks = []
+                for chunk in reader.chunks:
+                    corners = np.asarray(
+                        list(product(*zip(*chunk.bounds))), dtype=float
+                    )
+                    moved = corners @ self._transform[:3, :3].T + self._transform[:3, 3]
+                    chunks.append(
+                        MeshChunk(
+                            chunk.key,
+                            (tuple(moved.min(axis=0)), tuple(moved.max(axis=0))),
+                        )
+                    )
+                levels.append(MeshLevel(tuple(chunks), error))
+            self._readers = tuple(readers)
+            self.levels = tuple(levels)
+            self._reader_lifecycle = cleanup.pop_all()
 
     async def read(self, level: int, key: tuple[int, ...]) -> MeshData:
         return await asyncio.to_thread(partial(self._read, level, key))
@@ -108,7 +122,6 @@ class ZarrVectorsMeshSource:
         return MeshData(moved, result["faces"])
 
     def close(self) -> None:
-        """Close readers after the stream has stopped using this source."""
+        """Serialize reader cleanup with any remaining blocking read."""
         with self._lock:
-            for reader in self._readers:
-                reader.close()
+            self._reader_lifecycle.close()

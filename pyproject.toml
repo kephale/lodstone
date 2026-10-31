@@ -31,7 +31,7 @@ ome-zarr = ["zarr>=3", "fsspec>=2024.2", "aiohttp>=3.10"]
 mesh = ["zarr-vectors @ git+https://github.com/kephale/zarr-vectors-py@40bd38045e0c23019c5c88a54824b89f89243e4e"]
 mesh-demo = ["lodstone[mesh]", "pygfx>=0.17", "rendercanvas>=2.7", "glfw>=2", "imageio>=2"]
 biological-demo = ["lodstone[mesh-demo]", "scikit-image>=0.26", "scipy>=1.17", "fast-simplification>=0.2", "psutil>=7"]
-test = ["lodstone[mesh]", "dask[array]>=2022.1.1", "pytest>=8", "zarr>=3"]
+test = ["lodstone[mesh]", "dask[array]>=2022.1.1", "pytest>=8", "zarr>=3", "scipy>=1.17", "scikit-image>=0.26", "fast-simplification>=0.2"]
 
 [dependency-groups]
 dev = ["pyright>=1.1", "ruff>=0.12"]

@@ -56,7 +56,11 @@ pip install -e ".[mesh]"
 No editable sibling checkout or manual dependency override is required. The base
 package still only requires NumPy. The `test` extra includes mesh support, so the
 existing CI test matrix exercises the reader integration rather than skipping it.
-The renderer and scientific demo dependencies remain optional.
+The test extra also installs SciPy, scikit-image and fast-simplification so
+synthetic smoothing, topology and physical-coordinate checks run in CI. These
+checks need neither a GPU nor downloaded biological data. Renderer dependencies
+remain optional; public-data reference checks still require an explicit cached
+fixture opt-in.
 
 This is a temporary source-install dependency. Before the next PyPI release,
 replace the Git reference with an upstream version that provides `MeshReader`:
@@ -121,6 +125,13 @@ Superseded blocking reads finish before the next source read starts; they are
 not published. GUI hosts must provide a dispatcher and keep servicing it.
 `wait()` is for tests/background work, never the GUI thread. Close the stream
 and target before closing a shared Runtime.
+
+`MeshStream.close()` cancels every queued generation and pending host publication
+without closing a caller-supplied `Runtime`. Blocking backend worker threads
+cannot be interrupted by cancelling their await; `ZarrVectorsMeshSource.close()`
+serializes reader cleanup with those workers and can wait for an in-flight read.
+Constructing a source validates LOD errors before opening readers, and unwinds
+all acquired metadata snapshots if later initialization fails.
 
 ## Memory and failure semantics
 
