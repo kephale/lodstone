@@ -130,6 +130,7 @@ class DenseTarget:
         block_shape: tuple[int, ...] = (64, 128, 128),
         focus_depth_weight: float = 0.5,
         focus_depth_target: float | None = None,
+        fit_on_first_publication: bool = True,
         on_presented: Callable[[DensePublication], None] | None = None,
     ) -> None:
         self.canvas = canvas
@@ -146,6 +147,7 @@ class DenseTarget:
         self.block_shape = tuple(int(value) for value in block_shape)
         self.focus_depth_weight = float(focus_depth_weight)
         self.focus_depth_target = focus_depth_target
+        self.fit_on_first_publication = fit_on_first_publication
         self.resident = ResidentArrays(pyramid, compose=True)
         self.handles: dict[int, DenseHandle] = {}
         self.publications: dict[int, DensePublication] = {}
@@ -277,7 +279,7 @@ class DenseTarget:
         if publication.level == self._context_level:
             self._masked_focus = None
         self.handle = handle
-        if first_publication:
+        if first_publication and self.fit_on_first_publication:
             self.canvas.set_range()
         if publication.level != self._context_level:
             self._mask_context(publication)
@@ -451,6 +453,7 @@ class DenseController:
         block_shape: tuple[int, ...] = (64, 128, 128),
         focus_depth_weight: float = 0.5,
         focus_depth_target: float | None = None,
+        fit_on_first_publication: bool = True,
         on_presented: Callable[[DensePublication], None] | None = None,
         on_targeted: Callable[[Plan], None] | None = None,
         camera_debounce_ms: int = 180,
@@ -482,6 +485,7 @@ class DenseController:
             block_shape=block_shape,
             focus_depth_weight=focus_depth_weight,
             focus_depth_target=focus_depth_target,
+            fit_on_first_publication=fit_on_first_publication,
             on_presented=on_presented,
         )
         stream_options.setdefault(
