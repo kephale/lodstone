@@ -27,9 +27,9 @@ import time
 
 import bpy
 import numpy as np
-from mathutils import Vector
+from mathutils import Quaternion, Vector
 
-from lodstone.adapters.blender import BlenderController, emission_material
+from lodstone.adapters.blender import LEVEL_COLORS, BlenderController, emission_material
 from lodstone.sources import OMEZarrSource
 
 DEFAULT_URL = (
@@ -47,8 +47,9 @@ def parse(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--channel", type=int, default=0)
     parser.add_argument("--memory-mib", type=int, default=32)
     parser.add_argument("--render-memory-mib", type=int, default=128)
-    parser.add_argument("--clims", type=float, nargs=2, default=(0.0, 1500.0))
-    parser.add_argument("--brightness", type=float, default=0.5)
+    parser.add_argument("--clims", type=float, nargs=2, default=(0.0, 250.0))
+    parser.add_argument("--brightness", type=float, default=1.0)
+    parser.add_argument("--absorption", type=float, default=8.0)
     parser.add_argument(
         "--units-per-blender-unit",
         type=float,
@@ -58,11 +59,7 @@ def parse(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def extent_box(
-    name: str, low: np.ndarray, high: np.ndarray, parent
-) -> bpy.types.Object:
-    """Wireframe cube bounding the full-resolution extent, in root-local XYZ."""
-    mesh = bpy.data.meshes.new(name)
+def _box(low, high):
     corners = [
         (x, y, z)
         for x in (low[0], high[0])
@@ -75,7 +72,15 @@ def extent_box(
         for j in range(i + 1, 8)
         if sum(a != b for a, b in zip(corners[i], corners[j], strict=True)) == 1
     ]
-    mesh.from_pydata(corners, edges, [])
+    return corners, edges
+
+
+def extent_box(
+    name: str, low: np.ndarray, high: np.ndarray, parent
+) -> bpy.types.Object:
+    """Wireframe cube bounding ``low``..``high`` in root-local XYZ."""
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata(*_box(low, high), [])
     obj = bpy.data.objects.new(name, mesh)
     obj.parent = parent
     obj.display_type = "WIRE"
@@ -117,7 +122,9 @@ def setup(arguments: argparse.Namespace) -> BlenderController:
     extent_box("Full-resolution extent", low, high, root)
 
     material = emission_material(
-        "Lodstone OME-Zarr volume", strength=arguments.brightness
+        "Lodstone OME-Zarr volume",
+        strength=arguments.brightness,
+        density=arguments.absorption,
     )
     controller = BlenderController(
         source,
@@ -172,19 +179,86 @@ def setup(arguments: argparse.Namespace) -> BlenderController:
             r3d.view_perspective = "PERSP"
             r3d.view_rotation = camera.rotation_euler.to_quaternion()
 
-    def show_tab():
-        # The sidebar's tab list exists only after it has drawn once.
-        for screen in bpy.data.screens:
-            for area in screen.areas:
-                for region in area.regions if area.type == "VIEW_3D" else ():
-                    if region.type == "UI":
-                        with contextlib.suppress(TypeError):
-                            region.active_panel_category = "Lodstone"
+    tries = {"left": 240}
 
-    bpy.app.timers.register(show_tab, first_interval=1.0)
+    def show_tab():
+        # A sidebar accepts a tab only after it has drawn once, e.g. when the
+        # Layout workspace is shown after running from Scripting. Keep trying.
+        # Only displayed screens accept it; others report it read-only.
+        pending = False
+        for window in bpy.context.window_manager.windows:
+            for area in window.screen.areas:
+                for region in area.regions if area.type == "VIEW_3D" else ():
+                    if region.type != "UI":
+                        continue
+                    with contextlib.suppress(TypeError, AttributeError):
+                        region.active_panel_category = "Lodstone"
+                    if region.active_panel_category != "Lodstone":
+                        pending = True
+            if window.workspace.name != "Layout":
+                pending = True
+        tries["left"] -= 1
+        return 0.5 if pending and tries["left"] > 0 else None
+
+    bpy.app.timers.register(show_tab, first_interval=0.5)
+    install_overlay()
     bpy.app.driver_namespace[KEY] = controller
     controller.start()
     return controller
+
+
+def _overlay_lines(controller: BlenderController) -> list[tuple[str, tuple]]:
+    lines = []
+    pyramid = controller.stream.source.pyramid
+    for level in sorted(controller.target.publications):
+        publication = controller.target.publications[level]
+        spacing = "x".join(f"{v:.2f}" for v in publication.scales[::-1])
+        shape = "x".join(str(n) for n in publication.data.shape[::-1])
+        if level == 0:
+            name = "FULL RESOLUTION (level 0)"
+        elif level == len(pyramid.levels) - 1:
+            name = f"coarse context (level {level})"
+        else:
+            name = f"level {level}"
+        tint = LEVEL_COLORS[min(level, len(LEVEL_COLORS) - 1)]
+        lines.append((f"{name}: {shape} voxels @ {spacing} um", tint))
+    status = controller.stream.status
+    summary = (
+        f"streaming {status.state} - read {_human(status.bytes_read)} this pass"
+        f" from {_human(controller.info['full_bytes'])} OME-Zarr"
+    )
+    lines.append((summary, (0.85, 0.85, 0.85)))
+    return lines
+
+
+OVERLAY = {"handle": None}
+
+
+def install_overlay() -> None:
+    import blf
+
+    if OVERLAY["handle"] is not None:
+        bpy.types.SpaceView3D.draw_handler_remove(OVERLAY["handle"], "WINDOW")
+
+    def draw():
+        controller = bpy.app.driver_namespace.get(KEY)
+        if controller is None:
+            return
+        size = 15 * bpy.context.preferences.system.ui_scale
+        font = 0
+        blf.size(font, size)
+        lines = _overlay_lines(controller)
+        scale = bpy.context.preferences.system.ui_scale
+        y = 16 * scale + size * 1.5 * (len(lines) - 1)  # bottom-left corner
+        for text, color in lines:
+            blf.color(font, *color, 1.0)
+            blf.position(font, 16 * scale, y, 0)
+            blf.draw(font, text)
+            y -= size * 1.5
+
+    OVERLAY["handle"] = bpy.types.SpaceView3D.draw_handler_add(
+        draw, (), "WINDOW", "POST_PIXEL"
+    )
 
 
 def _human(n: float) -> str:
@@ -217,6 +291,123 @@ class LODSTONE_OT_render_finest(bpy.types.Operator):
             return None
 
         bpy.app.timers.register(restore, first_interval=0.5)
+        return {"FINISHED"}
+
+
+def _largest_view() -> tuple[bpy.types.Area, bpy.types.RegionView3D] | None:
+    best = None
+    for window in bpy.context.window_manager.windows:
+        for area in window.screen.areas:
+            if area.type == "VIEW_3D":
+                size = area.width * area.height
+                if best is None or size > best[0]:
+                    best = (size, area, area.spaces.active.region_3d)
+    return None if best is None else (best[1], best[2])
+
+
+def _tissue_point(controller: BlenderController, eye: Vector) -> Vector:
+    """World position of bright coarse-context tissue nearest ``eye``."""
+    publication = controller.target.publications[max(controller.target.publications)]
+    data = publication.data
+    index = np.argwhere(data > np.percentile(data, 99.0))
+    index = index[:: max(1, len(index) // 4000)]
+    local = (np.asarray(publication.origins) + index * publication.scales)[:, ::-1]
+    root = controller.root.matrix_world
+    world = [root @ Vector(point) for point in local]
+    return min(world, key=lambda point: (point - eye).length)
+
+
+def _ease(t: float) -> float:
+    t = min(1.0, max(0.0, t))
+    return t * t * (3 - 2 * t)
+
+
+DEMO = {"timer": None}
+
+
+class LODSTONE_OT_demo_path(bpy.types.Operator):
+    bl_idname = "lodstone.demo_path"
+    bl_label = "Play demo path"
+    bl_description = (
+        "Drive the viewport along a fixed real-time path: orbit, dolly into "
+        "tissue, orbit close, zoom out; optionally finish with a finest render"
+    )
+
+    render: bpy.props.BoolProperty(name="Finish with render", default=False)
+
+    def execute(self, context):
+        controller = bpy.app.driver_namespace.get(KEY)
+        found = _largest_view()
+        if controller is None or found is None or not controller.target.publications:
+            self.report({"WARNING"}, "Wait for the first view to load")
+            return {"CANCELLED"}
+        if DEMO["timer"] is not None and bpy.app.timers.is_registered(DEMO["timer"]):
+            bpy.app.timers.unregister(DEMO["timer"])
+        area, r3d = found
+        start_rot = r3d.view_rotation.copy()
+        start_loc = r3d.view_location.copy()
+        start_dist = r3d.view_distance
+        orbit_a = Quaternion((0, 0, 1), np.radians(70)) @ start_rot
+        # Pick the tissue target as seen after the first orbit.
+        far_eye = start_loc + orbit_a @ Vector((0, 0, start_dist))
+        target = _tissue_point(controller, far_eye)
+        orbit_b = Quaternion((0, 0, 1), np.radians(40)) @ orbit_a
+        close = 0.22 * start_dist
+        # (duration s, rotation, location, distance, color-by-level) keyframes,
+        # eased between. Level colors fade in close up: green = full resolution.
+        keys = [
+            (3.0, start_rot, start_loc, start_dist, 0.0),  # hold overview
+            (8.0, orbit_a, start_loc, start_dist, 0.0),  # orbit
+            (8.0, orbit_a, target, close, 0.0),  # dolly into tissue
+            (3.0, orbit_a, target, close, 0.0),  # hold: fine chunks arrive
+            (2.0, orbit_a, target, close, 1.0),  # show levels
+            (8.0, orbit_b, target, close, 1.0),  # orbit close, levels shown
+            (2.0, orbit_b, target, close, 0.0),  # hide levels
+            (6.0, start_rot, start_loc, start_dist, 0.0),  # zoom back out
+            (3.0, start_rot, start_loc, start_dist, 0.0),  # hold
+        ]
+        material = bpy.data.materials.get("Lodstone OME-Zarr volume")
+        toggle = (
+            None
+            if material is None
+            else next(
+                (n for n in material.node_tree.nodes if n.label == "Color by level"),
+                None,
+            )
+        )
+        if toggle is not None:
+            toggle.outputs[0].default_value = 0.0
+        render = self.render
+        state = {"t0": time.perf_counter(), "segment": 0, "from": keys[0]}
+
+        def step():
+            elapsed = time.perf_counter() - state["t0"]
+            index = state["segment"]
+            duration, rot, loc, dist, color = keys[index]
+            _, rot0, loc0, dist0, color0 = state["from"]
+            f = _ease(elapsed / duration)
+            r3d.view_rotation = rot0.slerp(rot, f)
+            r3d.view_location = loc0.lerp(loc, f)
+            if toggle is not None:
+                toggle.outputs[0].default_value = color0 + (color - color0) * f
+            r3d.view_distance = float(
+                np.exp(np.log(dist0) * (1 - f) + np.log(dist) * f)
+            )
+            area.tag_redraw()
+            if elapsed < duration:
+                return 1 / 60
+            state["segment"] += 1
+            state["from"] = keys[index]
+            state["t0"] = time.perf_counter()
+            if state["segment"] < len(keys):
+                return 1 / 60
+            DEMO["timer"] = None
+            if render:
+                bpy.ops.lodstone.render_finest()
+            return None
+
+        DEMO["timer"] = step
+        bpy.app.timers.register(step, first_interval=0.0)
         return {"FINISHED"}
 
 
@@ -266,23 +457,41 @@ class LODSTONE_PT_ome_zarr(bpy.types.Panel):
         )
         if brightness is not None:
             layout.prop(brightness.inputs[1], "default_value", text="Brightness")
+        nodes = (
+            {} if material is None else {n.label: n for n in material.node_tree.nodes}
+        )
+        if "Absorption" in nodes:
+            layout.prop(
+                nodes["Absorption"].inputs[1], "default_value", text="Absorption"
+            )
+        if "Color by level" in nodes:
+            layout.prop(
+                nodes["Color by level"].outputs[0],
+                "default_value",
+                text="Color by level (green = full res)",
+                slider=True,
+            )
         layout.operator(LODSTONE_OT_render_finest.bl_idname, icon="RENDER_STILL")
+        row = layout.row(align=True)
+        row.operator(LODSTONE_OT_demo_path.bl_idname, icon="PLAY").render = False
+        row.operator(
+            LODSTONE_OT_demo_path.bl_idname, text="Play + render", icon="RENDER_STILL"
+        ).render = True
 
 
 def _redraw_panel():
-    if KEY not in bpy.app.driver_namespace:
+    controller = bpy.app.driver_namespace.get(KEY)
+    if controller is None:
         return None
     for window in bpy.context.window_manager.windows:
         for area in window.screen.areas:
             if area.type == "VIEW_3D":
-                for region in area.regions:
-                    if region.type == "UI":
-                        region.tag_redraw()
-    return 0.5
+                area.tag_redraw()
+    return 0.25
 
 
 def register() -> None:
-    for cls in (LODSTONE_OT_render_finest, LODSTONE_PT_ome_zarr):
+    for cls in (LODSTONE_OT_render_finest, LODSTONE_OT_demo_path, LODSTONE_PT_ome_zarr):
         old = getattr(bpy.types, cls.__name__, None)
         if old is not None:
             bpy.utils.unregister_class(old)

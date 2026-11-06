@@ -286,33 +286,85 @@ def grid_node_group() -> Any:
     return group
 
 
+LEVEL_COLORS = (
+    (0.15, 1.0, 0.3),  # level 0 (full resolution): green
+    (1.0, 0.85, 0.1),  # level 1: yellow
+    (1.0, 0.2, 0.9),  # level 2: magenta
+    (0.2, 0.7, 1.0),  # level 3+: blue
+)
+
+
 def emission_material(
     name: str = "Lodstone volume",
     color: tuple[float, float, float] = (1.0, 1.0, 1.0),
     strength: float = 8.0,
     density: float = 0.0,
 ) -> Any:
-    """Return an additive fluorescence-style material reading the grid."""
+    """Return a fluorescence-style material reading the grid.
+
+    Emission is ``strength * value``. ``density`` adds absorption from the same
+    value (napari's "attenuated" look): near structure occludes far structure
+    instead of integrating into haze. The node labelled "Color by level" mixes
+    the emission color toward a per-level tint read from each volume object's
+    ``lodstone_level`` property, so resolution is visible at a glance.
+    """
     bpy = _bpy()
     material = bpy.data.materials.get(name)
     if material is not None:
         return material
     material = bpy.data.materials.new(name)
     tree = material.node_tree
-    tree.nodes.clear()
-    attribute = tree.nodes.new("ShaderNodeAttribute")
-    attribute.attribute_name = GRID_NAME
-    scale = tree.nodes.new("ShaderNodeMath")
-    scale.operation = "MULTIPLY"
-    scale.label = "Brightness"
-    scale.inputs[1].default_value = strength
-    volume = tree.nodes.new("ShaderNodeVolumePrincipled")
-    volume.inputs["Density"].default_value = density
-    volume.inputs["Emission Color"].default_value = (*color, 1.0)
-    out = tree.nodes.new("ShaderNodeOutputMaterial")
-    tree.links.new(attribute.outputs["Fac"], scale.inputs[0])
-    tree.links.new(scale.outputs[0], volume.inputs["Emission Strength"])
-    tree.links.new(volume.outputs["Volume"], out.inputs["Volume"])
+    nodes, link = tree.nodes, tree.links.new
+    nodes.clear()
+    value = nodes.new("ShaderNodeAttribute")
+    value.attribute_name = GRID_NAME
+    emission = nodes.new("ShaderNodeMath")
+    emission.operation = "MULTIPLY"
+    emission.label = "Brightness"
+    emission.inputs[1].default_value = strength
+    absorption = nodes.new("ShaderNodeMath")
+    absorption.operation = "MULTIPLY"
+    absorption.label = "Absorption"
+    absorption.inputs[1].default_value = density
+
+    level = nodes.new("ShaderNodeAttribute")
+    level.attribute_type = "OBJECT"
+    level.attribute_name = "lodstone_level"
+    to_ramp = nodes.new("ShaderNodeMath")
+    to_ramp.operation = "DIVIDE"
+    to_ramp.inputs[1].default_value = len(LEVEL_COLORS)
+    ramp = nodes.new("ShaderNodeValToRGB")
+    ramp.color_ramp.interpolation = "CONSTANT"
+    # Constant ramp sampled at level / len(LEVEL_COLORS): stop k sits half a
+    # step below level k, so each level lands on its own color.
+    elements = ramp.color_ramp.elements
+    elements[0].position = 0.0
+    elements[1].position = 0.5 / len(LEVEL_COLORS)
+    for index in range(2, len(LEVEL_COLORS)):
+        elements.new((index - 0.5) / len(LEVEL_COLORS))
+    ordered = sorted(elements, key=lambda element: element.position)
+    for element, tint in zip(ordered, LEVEL_COLORS, strict=True):
+        element.color = (*tint, 1.0)
+    toggle = nodes.new("ShaderNodeValue")
+    toggle.label = "Color by level"
+    toggle.outputs[0].default_value = 0.0
+    mix = nodes.new("ShaderNodeMix")
+    mix.data_type = "RGBA"
+    mix.inputs["A"].default_value = (*color, 1.0)
+
+    volume = nodes.new("ShaderNodeVolumePrincipled")
+    volume.inputs["Color"].default_value = (0.0, 0.0, 0.0, 1.0)  # absorb only
+    out = nodes.new("ShaderNodeOutputMaterial")
+    link(value.outputs["Fac"], emission.inputs[0])
+    link(value.outputs["Fac"], absorption.inputs[0])
+    link(level.outputs["Fac"], to_ramp.inputs[0])
+    link(to_ramp.outputs[0], ramp.inputs["Fac"])
+    link(toggle.outputs[0], mix.inputs["Factor"])
+    link(ramp.outputs["Color"], mix.inputs["B"])
+    link(mix.outputs["Result"], volume.inputs["Emission Color"])
+    link(emission.outputs[0], volume.inputs["Emission Strength"])
+    link(absorption.outputs[0], volume.inputs["Density"])
+    link(volume.outputs["Volume"], out.inputs["Volume"])
     return material
 
 
@@ -600,6 +652,10 @@ class BlenderController(DenseController):
                 return publish(view, plan, publication)
             finally:
                 self.publish_ms.append((time.perf_counter() - started) * 1000)
+                for level, handle in target.handles.items():
+                    obj = getattr(handle, "object", None)
+                    if obj is not None and obj.get("lodstone_level") != level:
+                        obj["lodstone_level"] = level
 
         target._publish = timed  # type: ignore[method-assign]
         return target
