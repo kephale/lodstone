@@ -13,6 +13,9 @@ the 0.1 alpha series and may change between prereleases.
 - Record the submitted view and a plan summary in performance snapshots and
   records.
 - Add `vispy_world_to_clip` for hosts that draw through a VisPy view box.
+- Add an experimental Blender dense target that streams chunks into native
+  volume grids in memory (geometry nodes), visible to the viewport, EEVEE and
+  Cycles without VDB files, plus a remote OME-Zarr example.
 
 ## 0.1.0a2 - 2026-08-30
 
