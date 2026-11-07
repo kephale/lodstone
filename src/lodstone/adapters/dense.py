@@ -128,7 +128,7 @@ class DenseTarget:
         *,
         memory_limit: int = 64 * 1024**2,
         block_shape: tuple[int, ...] = (64, 128, 128),
-        focus_depth_weight: float = 0.5,
+        focus_depth_weight: float | None = None,
         focus_depth_target: float | None = None,
         on_presented: Callable[[DensePublication], None] | None = None,
     ) -> None:
@@ -137,14 +137,18 @@ class DenseTarget:
         self.memory_limit = int(memory_limit)
         if self.memory_limit <= 0:
             raise ValueError("memory_limit must be positive")
-        if not np.isfinite(focus_depth_weight) or focus_depth_weight < 0:
+        if focus_depth_weight is not None and (
+            not np.isfinite(focus_depth_weight) or focus_depth_weight < 0
+        ):
             raise ValueError("focus_depth_weight must be finite and nonnegative")
         if focus_depth_target is not None and (
             not np.isfinite(focus_depth_target) or not 0 <= focus_depth_target <= 1
         ):
             raise ValueError("focus_depth_target must be between zero and one")
         self.block_shape = tuple(int(value) for value in block_shape)
-        self.focus_depth_weight = float(focus_depth_weight)
+        self.focus_depth_weight = (
+            None if focus_depth_weight is None else float(focus_depth_weight)
+        )
         self.focus_depth_target = focus_depth_target
         self.resident = ResidentArrays(pyramid, compose=True)
         self.handles: dict[int, DenseHandle] = {}
@@ -449,7 +453,7 @@ class DenseController:
         runtime: Runtime | None = None,
         memory_limit: int = 64 * 1024**2,
         block_shape: tuple[int, ...] = (64, 128, 128),
-        focus_depth_weight: float = 0.5,
+        focus_depth_weight: float | None = None,
         focus_depth_target: float | None = None,
         on_presented: Callable[[DensePublication], None] | None = None,
         on_targeted: Callable[[Plan], None] | None = None,
