@@ -9,7 +9,7 @@ the 0.1 alpha series and may change between prereleases.
   state on errors, and cancel timers using stable callback identities.
 - Select Blender demo time/channel indices by NGFF axis names, add render
   lifecycle regressions and make native verification failures exit nonzero.
-  Include a proposed pinned Blender smoke-job patch.
+  Run native Blender regressions and a CPU Cycles smoke check in pinned CI.
 
 - Add `fit_on_first_publication` so a dense host can keep its own camera.
 - Ignore camera events only during Lodstone's own publication, so a camera moved
