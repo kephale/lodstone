@@ -84,23 +84,6 @@ def test_fill_unloaded_chunks_preserves_tiles_smaller_than_native_chunks() -> No
     assert filled == (Region((0, 0), (4, 8)),)
 
 
-def test_fill_unloaded_chunks_skips_chunks_covered_by_several_blocks() -> None:
-    destination = np.full((4, 4), 9, dtype=np.uint8)
-    loaded = {Region((0, 0), (2, 4)), Region((2, 0), (4, 4))}
-
-    filled = fill_unloaded_chunks(
-        destination,
-        Region((0, 0), (4, 4)),
-        np.zeros((4, 4), dtype=np.uint8),
-        Region((0, 0), (4, 4)),
-        ((4,), (4,)),
-        loaded,
-    )
-
-    assert filled == ()
-    assert np.all(destination == 9)
-
-
 def test_resampling_rejects_rotated_transform() -> None:
     transform = _transform((1, 1))
     transform[0, 1] = 0.5

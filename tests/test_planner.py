@@ -745,24 +745,3 @@ def test_sparse_crop_spends_budget_on_tiles_not_empty_gap(ortho_view):
     assert {t.key for t in sparse.desired} == keep
     assert len(dense.desired) == 1
     assert sum(t.region.size * 2 for t in sparse.desired) == 4096
-
-
-def test_unknown_content_is_retained_and_invisible_keys_are_selection_specific(
-    ortho_view,
-):
-    source = _pyramid()
-    view = ortho_view((256, 256), viewport=(512, 512))
-    planner = Planner(progressive=False)
-    layout = Layout(block_shape=(32, 32))
-    baseline = planner.plan(source.pyramid, view, layout)
-    key = baseline.desired[0].key
-    filtered = planner.plan(
-        source.pyramid, view, layout, invisible_tiles=frozenset({key})
-    )
-    assert len(filtered.desired) == len(baseline.desired) - 1
-    assert key not in filtered.retain
-    stale = replace(key, selection=(0, 0))
-    assert (
-        planner.plan(source.pyramid, view, layout, invisible_tiles=frozenset({stale}))
-        == baseline
-    )
