@@ -1,0 +1,235 @@
+{
+  "summary": {
+    "id": "reference",
+    "source_bytes": 16777216,
+    "source_reads": 8,
+    "resident_bytes": 16777216,
+    "rss_bytes": 379801600,
+    "foreground_rmse": 0.0,
+    "rmse": 0.0
+  },
+  "frames": [
+    {
+      "pose": 0,
+      "kind": "loading",
+      "file": "000-00000-loading.png",
+      "seconds": 0.30660189501941204
+    },
+    {
+      "pose": 0,
+      "kind": "loading",
+      "file": "000-00001-loading.png",
+      "seconds": 0.5674530760152265
+    },
+    {
+      "pose": 0,
+      "kind": "phase-L0",
+      "file": "000-00002-phase-L0.png",
+      "seconds": 0.9051130349980667
+    },
+    {
+      "pose": 0,
+      "kind": "loading",
+      "file": "000-00003-loading.png",
+      "seconds": 0.9105477160774171
+    },
+    {
+      "pose": 0,
+      "kind": "settled",
+      "file": "000-00004-settled.png",
+      "seconds": 0.9176998710026965
+    },
+    {
+      "pose": 0,
+      "kind": "delayed",
+      "file": "000-00005-delayed.png",
+      "seconds": 0.9572371359681711
+    },
+    {
+      "pose": 1,
+      "kind": "phase-L0",
+      "file": "001-00006-phase-L0.png",
+      "seconds": 0.036441602976992726
+    },
+    {
+      "pose": 1,
+      "kind": "settled",
+      "file": "001-00007-settled.png",
+      "seconds": 0.04737644095439464
+    },
+    {
+      "pose": 1,
+      "kind": "delayed",
+      "file": "001-00008-delayed.png",
+      "seconds": 0.09195698006078601
+    },
+    {
+      "pose": 2,
+      "kind": "phase-L0",
+      "file": "002-00009-phase-L0.png",
+      "seconds": 0.03206281701568514
+    },
+    {
+      "pose": 2,
+      "kind": "settled",
+      "file": "002-00010-settled.png",
+      "seconds": 0.0399978969944641
+    },
+    {
+      "pose": 2,
+      "kind": "delayed",
+      "file": "002-00011-delayed.png",
+      "seconds": 0.08465461293235421
+    }
+  ],
+  "errors": [],
+  "statuses": [
+    {
+      "pose": 0,
+      "status": {
+        "generation": 1,
+        "state": "complete",
+        "wanted": 8,
+        "resident": 8,
+        "inflight": 0,
+        "bytes_read": 16777216,
+        "progress": 1.0,
+        "error": null
+      },
+      "desired_level": 0,
+      "handles": {
+        "0": true
+      },
+      "delayed_error": {
+        "rmse": 0.0,
+        "foreground_rmse": 0.0,
+        "edge_rmse": 0.0,
+        "brightness_bias": 0.0,
+        "foreground_fraction": 0.32330322265625
+      }
+    },
+    {
+      "pose": 1,
+      "status": {
+        "generation": 2,
+        "state": "complete",
+        "wanted": 0,
+        "resident": 8,
+        "inflight": 0,
+        "bytes_read": 0,
+        "progress": 1.0,
+        "error": null
+      },
+      "desired_level": 0,
+      "handles": {
+        "0": true
+      },
+      "delayed_error": {
+        "rmse": 0.0,
+        "foreground_rmse": 0.0,
+        "edge_rmse": 0.0,
+        "brightness_bias": 0.0,
+        "foreground_fraction": 0.63226318359375
+      }
+    },
+    {
+      "pose": 2,
+      "status": {
+        "generation": 3,
+        "state": "complete",
+        "wanted": 0,
+        "resident": 8,
+        "inflight": 0,
+        "bytes_read": 0,
+        "progress": 1.0,
+        "error": null
+      },
+      "desired_level": 0,
+      "handles": {
+        "0": true
+      },
+      "delayed_error": {
+        "rmse": 0.0,
+        "foreground_rmse": 0.0,
+        "edge_rmse": 0.0,
+        "brightness_bias": 0.0,
+        "foreground_fraction": 0.889892578125
+      }
+    }
+  ],
+  "generations": {
+    "1": {
+      "generation": 1,
+      "desired_tiles": 8,
+      "wanted_tiles": 8,
+      "unique_native_chunks": 8,
+      "cache_hits": 0,
+      "joined_reads": 0,
+      "source_reads": 8,
+      "evictions": 0,
+      "cache_chunks": 8,
+      "cache_bytes": 16777216,
+      "planned_bytes": 16777216,
+      "source_bytes": 16777216,
+      "delivered_bytes": 16777216,
+      "updates_delivered": 8,
+      "phases_presented": 0,
+      "prepare_stage_seconds": 0.002703572972677648,
+      "update_stage_seconds": 0.0033246660605072975,
+      "phase_stage_seconds": 0.0,
+      "target_wait_seconds": 0.00022829195950180292,
+      "max_target_wait_seconds": 0.0001303419703617692,
+      "elapsed_seconds": 0.7940670730313286,
+      "time_to_first_phase_seconds": null
+    },
+    "2": {
+      "generation": 2,
+      "desired_tiles": 8,
+      "wanted_tiles": 0,
+      "unique_native_chunks": 0,
+      "cache_hits": 0,
+      "joined_reads": 0,
+      "source_reads": 0,
+      "evictions": 0,
+      "cache_chunks": 8,
+      "cache_bytes": 16777216,
+      "planned_bytes": 0,
+      "source_bytes": 0,
+      "delivered_bytes": 0,
+      "updates_delivered": 0,
+      "phases_presented": 0,
+      "prepare_stage_seconds": 0.0,
+      "update_stage_seconds": 0.0,
+      "phase_stage_seconds": 0.0,
+      "target_wait_seconds": 0.0,
+      "max_target_wait_seconds": 0.0,
+      "elapsed_seconds": 2.5609973818063736e-05,
+      "time_to_first_phase_seconds": null
+    },
+    "3": {
+      "generation": 3,
+      "desired_tiles": 8,
+      "wanted_tiles": 0,
+      "unique_native_chunks": 0,
+      "cache_hits": 0,
+      "joined_reads": 0,
+      "source_reads": 0,
+      "evictions": 0,
+      "cache_chunks": 8,
+      "cache_bytes": 16777216,
+      "planned_bytes": 0,
+      "source_bytes": 0,
+      "delivered_bytes": 0,
+      "updates_delivered": 0,
+      "phases_presented": 1,
+      "prepare_stage_seconds": 0.0003573419526219368,
+      "update_stage_seconds": 0.0,
+      "phase_stage_seconds": 0.0014591750223189592,
+      "target_wait_seconds": 0.021779411006718874,
+      "max_target_wait_seconds": 0.02145131502766162,
+      "elapsed_seconds": 0.02400816499721259,
+      "time_to_first_phase_seconds": 0.023658727994188666
+    }
+  },
+  "quality_regressions": []
+}

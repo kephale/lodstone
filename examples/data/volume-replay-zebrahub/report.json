@@ -1,0 +1,81 @@
+{
+  "rows": [
+    {
+      "id": "reference",
+      "source_bytes": 16777216,
+      "source_reads": 8,
+      "resident_bytes": 16777216,
+      "rss_bytes": 379801600,
+      "foreground_rmse": 0.0,
+      "rmse": 0.0
+    },
+    {
+      "id": "coarse",
+      "source_bytes": 262144,
+      "source_reads": 1,
+      "resident_bytes": 262144,
+      "rss_bytes": 363450368,
+      "foreground_rmse": 0.04118532207281273,
+      "rmse": 0.031845789702355104
+    },
+    {
+      "id": "blank",
+      "source_bytes": 0,
+      "source_reads": 0,
+      "resident_bytes": 0,
+      "rss_bytes": 375103488,
+      "foreground_rmse": 0.12594406867718957,
+      "rmse": 0.09699227384958205
+    },
+    {
+      "id": "stationary",
+      "source_bytes": 262144,
+      "source_reads": 1,
+      "resident_bytes": 262144,
+      "rss_bytes": 391860224,
+      "foreground_rmse": 0.0,
+      "rmse": 0.0
+    },
+    {
+      "id": "adaptive-2-0",
+      "source_bytes": 19136512,
+      "source_reads": 11,
+      "resident_bytes": 6422528,
+      "rss_bytes": 448905216,
+      "foreground_rmse": 0.04556856674330825,
+      "rmse": 0.03506035579434785
+    },
+    {
+      "id": "adaptive-2-1",
+      "source_bytes": 19136512,
+      "source_reads": 11,
+      "resident_bytes": 6463488,
+      "rss_bytes": 496001024,
+      "foreground_rmse": 0.038948479333646514,
+      "rmse": 0.029959332915474337
+    },
+    {
+      "id": "adaptive-8-0",
+      "source_bytes": 19136512,
+      "source_reads": 11,
+      "resident_bytes": 18726912,
+      "rss_bytes": 581677056,
+      "foreground_rmse": 0.0280168581326137,
+      "rmse": 0.021626116848752625
+    },
+    {
+      "id": "adaptive-8-1",
+      "source_bytes": 19136512,
+      "source_reads": 11,
+      "resident_bytes": 18874368,
+      "rss_bytes": 644300800,
+      "foreground_rmse": 0.028652275502602905,
+      "rmse": 0.022057393828694996
+    }
+  ],
+  "pareto": [
+    "reference",
+    "coarse",
+    "adaptive-2-1"
+  ]
+}

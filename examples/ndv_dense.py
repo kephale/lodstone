@@ -30,6 +30,10 @@ def main() -> None:
         choices=("vispy", "pygfx"),
         help="ndv canvas backend (defaults to ndv's automatic selection)",
     )
+    parser.add_argument(
+        "--record-dir",
+        help="Save actual VisPy frames, camera states and telemetry (up to 1200 frames)",
+    )
     arguments = parser.parse_args()
 
     if arguments.backend is not None:
@@ -95,6 +99,7 @@ def main() -> None:
         indicator.adjustSize()
         indicator.raise_()
 
+    recorder = None
     coarse_refinement_requested = False
 
     def show_presented_level(publication: NDVPublication) -> None:
@@ -112,6 +117,8 @@ def main() -> None:
         print(title)
         widget.window().setWindowTitle(title)
         update_indicator()
+        if recorder is not None:
+            recorder.capture(f"phase-L{publication.level}")
 
     def show_target_level(plan: Plan) -> None:
         nonlocal target_level
@@ -231,6 +238,23 @@ def main() -> None:
     controls.show()
     controls.raise_()
 
+    if arguments.record_dir:
+        from _ndv_replay_record import Capture
+
+        recorder = Capture(
+            viewer,
+            controller,
+            arguments.record_dir,
+            lambda: {
+                "source": arguments.url,
+                "time": arguments.time,
+                "content_weight": controller.target.content_weight,
+                "memory_limit": controller.target.memory_limit,
+                "lod_bias": controller.stream.planner.lod_bias,
+                "focus_depth_weight": controller.target.focus_depth_weight,
+            },
+        )
+
     plan = controller.update(
         View(
             displayed_axes=(0, 1, 2),
@@ -247,6 +271,8 @@ def main() -> None:
     try:
         ndv.run_app()
     finally:
+        if recorder is not None:
+            recorder.close()
         controller.close()
 
 

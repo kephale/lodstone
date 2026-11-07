@@ -1,0 +1,184 @@
+{
+  "summary": {
+    "id": "blank",
+    "source_bytes": 0,
+    "source_reads": 0,
+    "resident_bytes": 0,
+    "rss_bytes": 375103488,
+    "foreground_rmse": 0.12594406867718957,
+    "rmse": 0.09699227384958205
+  },
+  "frames": [
+    {
+      "pose": 0,
+      "kind": "settled",
+      "file": "000-00000-settled.png",
+      "seconds": 0.004005494061857462,
+      "error": {
+        "rmse": 0.07010478765678504,
+        "foreground_rmse": 0.12318740468876938,
+        "edge_rmse": 0.022538381639251304,
+        "brightness_bias": -0.03471153109681372,
+        "foreground_fraction": 0.32330322265625
+      }
+    },
+    {
+      "pose": 0,
+      "kind": "delayed",
+      "file": "000-00001-delayed.png",
+      "seconds": 0.03795855201315135,
+      "error": {
+        "rmse": 0.07010478765678504,
+        "foreground_rmse": 0.12318740468876938,
+        "edge_rmse": 0.022538381639251304,
+        "brightness_bias": -0.03471153109681372,
+        "foreground_fraction": 0.32330322265625
+      }
+    },
+    {
+      "pose": 1,
+      "kind": "settled",
+      "file": "001-00002-settled.png",
+      "seconds": 0.0035237109987065196,
+      "error": {
+        "rmse": 0.10473361160033107,
+        "foreground_rmse": 0.13158048435047026,
+        "edge_rmse": 0.02331132689478724,
+        "brightness_bias": -0.07313663258272059,
+        "foreground_fraction": 0.63226318359375
+      }
+    },
+    {
+      "pose": 1,
+      "kind": "delayed",
+      "file": "001-00003-delayed.png",
+      "seconds": 0.03695337299723178,
+      "error": {
+        "rmse": 0.10473361160033107,
+        "foreground_rmse": 0.13158048435047026,
+        "edge_rmse": 0.02331132689478724,
+        "brightness_bias": -0.07313663258272059,
+        "foreground_fraction": 0.63226318359375
+      }
+    },
+    {
+      "pose": 2,
+      "kind": "settled",
+      "file": "002-00004-settled.png",
+      "seconds": 0.0036956840194761753,
+      "error": {
+        "rmse": 0.11613842229163003,
+        "foreground_rmse": 0.12306431699232914,
+        "edge_rmse": 0.020877254830531395,
+        "brightness_bias": -0.09404033586090688,
+        "foreground_fraction": 0.889892578125
+      }
+    },
+    {
+      "pose": 2,
+      "kind": "delayed",
+      "file": "002-00005-delayed.png",
+      "seconds": 0.03604462498333305,
+      "error": {
+        "rmse": 0.11613842229163003,
+        "foreground_rmse": 0.12306431699232914,
+        "edge_rmse": 0.020877254830531395,
+        "brightness_bias": -0.09404033586090688,
+        "foreground_fraction": 0.889892578125
+      }
+    }
+  ],
+  "errors": [
+    {
+      "rmse": 0.07010478765678504,
+      "foreground_rmse": 0.12318740468876938,
+      "edge_rmse": 0.022538381639251304,
+      "brightness_bias": -0.03471153109681372,
+      "foreground_fraction": 0.32330322265625
+    },
+    {
+      "rmse": 0.10473361160033107,
+      "foreground_rmse": 0.13158048435047026,
+      "edge_rmse": 0.02331132689478724,
+      "brightness_bias": -0.07313663258272059,
+      "foreground_fraction": 0.63226318359375
+    },
+    {
+      "rmse": 0.11613842229163003,
+      "foreground_rmse": 0.12306431699232914,
+      "edge_rmse": 0.020877254830531395,
+      "brightness_bias": -0.09404033586090688,
+      "foreground_fraction": 0.889892578125
+    }
+  ],
+  "statuses": [
+    {
+      "pose": 0,
+      "status": {
+        "generation": 0,
+        "state": "idle",
+        "wanted": 0,
+        "resident": 0,
+        "inflight": 0,
+        "bytes_read": 0,
+        "progress": 0.0,
+        "error": null
+      },
+      "desired_level": null,
+      "handles": {},
+      "delayed_error": {
+        "rmse": 0.0,
+        "foreground_rmse": 0.0,
+        "edge_rmse": 0.0,
+        "brightness_bias": 0.0,
+        "foreground_fraction": 0.0
+      }
+    },
+    {
+      "pose": 1,
+      "status": {
+        "generation": 0,
+        "state": "idle",
+        "wanted": 0,
+        "resident": 0,
+        "inflight": 0,
+        "bytes_read": 0,
+        "progress": 0.0,
+        "error": null
+      },
+      "desired_level": null,
+      "handles": {},
+      "delayed_error": {
+        "rmse": 0.0,
+        "foreground_rmse": 0.0,
+        "edge_rmse": 0.0,
+        "brightness_bias": 0.0,
+        "foreground_fraction": 0.0
+      }
+    },
+    {
+      "pose": 2,
+      "status": {
+        "generation": 0,
+        "state": "idle",
+        "wanted": 0,
+        "resident": 0,
+        "inflight": 0,
+        "bytes_read": 0,
+        "progress": 0.0,
+        "error": null
+      },
+      "desired_level": null,
+      "handles": {},
+      "delayed_error": {
+        "rmse": 0.0,
+        "foreground_rmse": 0.0,
+        "edge_rmse": 0.0,
+        "brightness_bias": 0.0,
+        "foreground_fraction": 0.0
+      }
+    }
+  ],
+  "generations": {},
+  "quality_regressions": []
+}

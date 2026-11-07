@@ -1,0 +1,20 @@
+{
+  "source": "https://public.czbiohub.org/royerlab/zebrahub/imaging/single-objective/ZSNS001.ome.zarr",
+  "time": 400,
+  "roi": "160,1612,1000,288,1868,1256",
+  "reference_decoded_bytes": 16777216,
+  "clim": [
+    0.0,
+    800.0
+  ],
+  "renderer": "standalone VisPy MIP/additive, ndv-style dense target; not ndv GUI",
+  "cache_protocol": "fresh stream per configuration, warm across poses",
+  "source_hashes": {
+    "examples/volume_replay.py": "438577638caea324d167efdab91a8a556d36119cad13f570186540dcd119db1f",
+    "src/lodstone/replay.py": "ed2e8f958c129cf1fc8c55c7c314629f86abb7444f831440deffbb1b5eac646e",
+    "src/lodstone/adapters/dense.py": "2166cef1498431f2b3fa21883761ac31e2ddb9ee55e41cc9d3990926bda19a7e",
+    "src/lodstone/planner.py": "8a8da0145378dd8fb0c994b262d0c84122f18dc9e59144097f85c134aff5327d"
+  },
+  "lodstone_commit": "69499d39521389130818d360c5a09099d395e197",
+  "cost_scope": "source_bytes are decoded payload, not encoded network bandwidth; RSS is sampled process total; GPU bytes unmeasured"
+}

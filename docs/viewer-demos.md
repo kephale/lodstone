@@ -97,3 +97,7 @@ Restart ChimeraX after replacing Lodstone or reinstalling the bundle.
 
 
 [Connect another viewer](dense-hosts.md) · [Mesh demo](biological-mesh.md)
+
+For actual-frame recording and matched finest/coarse/adaptive comparisons, see
+[Volume replay and optimization handoff](volume-replay.md). The VisPy demo accepts
+`--record-dir /tmp/zebrahub-live-001` to capture a zoom-and-content-toggle sequence.

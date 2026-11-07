@@ -1,0 +1,205 @@
+{
+  "summary": {
+    "id": "stationary",
+    "source_bytes": 262144,
+    "source_reads": 1,
+    "resident_bytes": 262144,
+    "rss_bytes": 391860224,
+    "foreground_rmse": 0.0,
+    "rmse": 0.0
+  },
+  "frames": [
+    {
+      "pose": 0,
+      "kind": "phase-L2",
+      "file": "000-00000-phase-L2.png",
+      "seconds": 0.10457699093967676
+    },
+    {
+      "pose": 0,
+      "kind": "settled",
+      "file": "000-00001-settled.png",
+      "seconds": 0.10831292299553752
+    },
+    {
+      "pose": 0,
+      "kind": "delayed",
+      "file": "000-00002-delayed.png",
+      "seconds": 0.14390019292477518
+    },
+    {
+      "pose": 1,
+      "kind": "settled",
+      "file": "001-00003-settled.png",
+      "seconds": 0.009675761102698743
+    },
+    {
+      "pose": 1,
+      "kind": "delayed",
+      "file": "001-00004-delayed.png",
+      "seconds": 0.04577206703834236
+    },
+    {
+      "pose": 2,
+      "kind": "settled",
+      "file": "002-00005-settled.png",
+      "seconds": 0.009165973984636366
+    },
+    {
+      "pose": 2,
+      "kind": "delayed",
+      "file": "002-00006-delayed.png",
+      "seconds": 0.04389356903266162
+    }
+  ],
+  "errors": [],
+  "statuses": [
+    {
+      "pose": 0,
+      "status": {
+        "generation": 1,
+        "state": "complete",
+        "wanted": 1,
+        "resident": 1,
+        "inflight": 0,
+        "bytes_read": 262144,
+        "progress": 1.0,
+        "error": null
+      },
+      "desired_level": 2,
+      "handles": {
+        "2": true
+      },
+      "delayed_error": {
+        "rmse": 0.0,
+        "foreground_rmse": 0.0,
+        "edge_rmse": 0.0,
+        "brightness_bias": 0.0,
+        "foreground_fraction": 0.29486083984375
+      }
+    },
+    {
+      "pose": 1,
+      "status": {
+        "generation": 2,
+        "state": "complete",
+        "wanted": 0,
+        "resident": 1,
+        "inflight": 0,
+        "bytes_read": 0,
+        "progress": 1.0,
+        "error": null
+      },
+      "desired_level": 2,
+      "handles": {
+        "2": true
+      },
+      "delayed_error": {
+        "rmse": 0.0,
+        "foreground_rmse": 0.0,
+        "edge_rmse": 0.0,
+        "brightness_bias": 0.0,
+        "foreground_fraction": 0.29486083984375
+      }
+    },
+    {
+      "pose": 2,
+      "status": {
+        "generation": 3,
+        "state": "complete",
+        "wanted": 0,
+        "resident": 1,
+        "inflight": 0,
+        "bytes_read": 0,
+        "progress": 1.0,
+        "error": null
+      },
+      "desired_level": 2,
+      "handles": {
+        "2": true
+      },
+      "delayed_error": {
+        "rmse": 0.0,
+        "foreground_rmse": 0.0,
+        "edge_rmse": 0.0,
+        "brightness_bias": 0.0,
+        "foreground_fraction": 0.29486083984375
+      }
+    }
+  ],
+  "generations": {
+    "1": {
+      "generation": 1,
+      "desired_tiles": 1,
+      "wanted_tiles": 1,
+      "unique_native_chunks": 1,
+      "cache_hits": 0,
+      "joined_reads": 0,
+      "source_reads": 1,
+      "evictions": 0,
+      "cache_chunks": 1,
+      "cache_bytes": 262144,
+      "planned_bytes": 262144,
+      "source_bytes": 262144,
+      "delivered_bytes": 262144,
+      "updates_delivered": 1,
+      "phases_presented": 0,
+      "prepare_stage_seconds": 0.0005005790153518319,
+      "update_stage_seconds": 0.00022852199617773294,
+      "phase_stage_seconds": 0.0,
+      "target_wait_seconds": 0.00025117595214396715,
+      "max_target_wait_seconds": 0.00015886698383837938,
+      "elapsed_seconds": 0.07678787596523762,
+      "time_to_first_phase_seconds": null
+    },
+    "2": {
+      "generation": 2,
+      "desired_tiles": 1,
+      "wanted_tiles": 0,
+      "unique_native_chunks": 0,
+      "cache_hits": 0,
+      "joined_reads": 0,
+      "source_reads": 0,
+      "evictions": 0,
+      "cache_chunks": 1,
+      "cache_bytes": 262144,
+      "planned_bytes": 0,
+      "source_bytes": 0,
+      "delivered_bytes": 0,
+      "updates_delivered": 0,
+      "phases_presented": 0,
+      "prepare_stage_seconds": 0.0,
+      "update_stage_seconds": 0.0,
+      "phase_stage_seconds": 0.0,
+      "target_wait_seconds": 0.0,
+      "max_target_wait_seconds": 0.0,
+      "elapsed_seconds": 2.340506762266159e-05,
+      "time_to_first_phase_seconds": null
+    },
+    "3": {
+      "generation": 3,
+      "desired_tiles": 1,
+      "wanted_tiles": 0,
+      "unique_native_chunks": 0,
+      "cache_hits": 0,
+      "joined_reads": 0,
+      "source_reads": 0,
+      "evictions": 0,
+      "cache_chunks": 1,
+      "cache_bytes": 262144,
+      "planned_bytes": 0,
+      "source_bytes": 0,
+      "delivered_bytes": 0,
+      "updates_delivered": 0,
+      "phases_presented": 0,
+      "prepare_stage_seconds": 0.0,
+      "update_stage_seconds": 0.0,
+      "phase_stage_seconds": 0.0,
+      "target_wait_seconds": 0.0,
+      "max_target_wait_seconds": 0.0,
+      "elapsed_seconds": 2.437701914459467e-05,
+      "time_to_first_phase_seconds": null
+    }
+  },
+  "quality_regressions": []
+}
