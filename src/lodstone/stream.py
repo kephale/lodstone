@@ -203,6 +203,8 @@ class Stream:
             else:
                 available = frozenset()
         layout = self.target.layout(view, self.source.pyramid)
+        content = getattr(self.target, "content_priority", None)
+        options = {"content_priority": content(view)} if content is not None else {}
         return self.planner.plan(
             self.source.pyramid,
             view,
@@ -210,6 +212,7 @@ class Stream:
             available=available,
             previous_target_level=previous_target_level,
             lod_hysteresis=lod_hysteresis,
+            **options,
         )
 
     def update(self, view: View) -> Plan:

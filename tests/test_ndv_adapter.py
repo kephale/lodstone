@@ -447,3 +447,131 @@ def test_ndv_focus_policy_can_be_tuned_and_replanned(ortho_view, wait) -> None:
         )
     finally:
         controller.close()
+
+
+def test_focus_policy_can_restore_front_to_back():
+    source = SimulatedSource([np.ones((16, 16), np.uint8)], chunks=[(8, 8)])
+    controller = NDVController(Canvas(), source)
+    try:
+        controller.set_focus_policy(focus_depth_weight=0.5, focus_depth_target=0.5)
+        controller.set_focus_policy(memory_limit=1024)
+        assert controller.target.focus_depth_weight == 0.5
+        controller.set_focus_policy(focus_depth_weight=None, focus_depth_target=None)
+        assert controller.target.focus_depth_weight is None
+        assert controller.target.focus_depth_target is None
+    finally:
+        controller.close()
+
+
+def test_coarse_signal_promotes_interior_without_fine_reads(ortho_view):
+    from lodstone import Planner, Region
+
+    fine = np.zeros((32, 32, 32), np.uint8)
+    coarse = np.zeros((8, 8, 8), np.uint8)
+    coarse[2:4, 2:4, 4:6] = 100
+    source = SimulatedSource(
+        [fine, coarse],
+        chunks=[(8, 8, 8), (4, 4, 4)],
+        transforms=[np.eye(4), np.diag([4.0, 4.0, 4.0, 1.0])],
+    )
+    controller = NDVController(Canvas(), source)
+    try:
+        target = controller.target
+        view = ortho_view(fine.shape)
+        bounds = Region((0, 0, 0), coarse.shape)
+        target._coarse_content = (view.index, bounds, coarse, (bounds,))
+        target.content_weight = 1.0
+        priority = target.content_priority(view)
+        layout = Layout(
+            kind="bricked",
+            block_shape=(8, 8, 8),
+            memory_policy="crop",
+            memory_limit=512,
+        )
+        planner = Planner(progressive=False)
+        geometric = planner.plan(source.pyramid, view, layout)
+        guided = planner.plan(source.pyramid, view, layout, content_priority=priority)
+        assert geometric.desired[0].region.start[2] == 0
+        assert guided.desired[0].region.start == (8, 8, 16)
+        # Soft preference preserves every eligible region when capacity permits.
+        full = planner.plan(
+            source.pyramid,
+            view,
+            Layout(block_shape=(8, 8, 8)),
+            content_priority=priority,
+        )
+        assert len(full.desired) == 64
+        # Missing coverage is unknown, never treated as evidence of emptiness.
+        target._coarse_content = (view.index, bounds, coarse, ())
+        assert target.content_priority(view)(0, Region((8, 8, 16), (16, 16, 24))) == 0
+    finally:
+        controller.close()
+
+
+def test_refinement_displays_only_one_focus_and_remasks_context(ortho_view, wait):
+    from lodstone import Planner
+
+    source = SimulatedSource(
+        [
+            np.full((32, 32), 7, np.uint16),
+            np.full((16, 16), 5, np.uint16),
+            np.full((8, 8), 3, np.uint16),
+        ],
+        chunks=[(8, 8)] * 3,
+        transforms=[np.eye(3), np.diag([2.0, 2.0, 1.0]), np.diag([4.0, 4.0, 1.0])],
+    )
+    canvas = Canvas()
+    snapshots = []
+    controller = NDVController(
+        canvas,
+        source,
+        planner=Planner(),
+        memory_limit=512,
+        block_shape=(8, 8),
+        on_presented=lambda publication: snapshots.append(
+            tuple(
+                level
+                for level, handle in controller.target.handles.items()
+                if level != 2 and handle.visible
+            )
+        ),
+    )
+    try:
+        view = ortho_view((32, 32), viewport=(128, 128))
+        plan = controller.update(view)
+        wait(lambda: controller.stream.status.state == "complete")
+        assert snapshots == [(), (1,), (0,)]
+        target = controller.target
+        before = target.handles[2].history[-1].copy()
+        assert np.any(before == 0)
+        # A refreshed overview must not brighten the existing fine footprint.
+        target.phase_complete(view, plan, 0, target.publications[2])
+        np.testing.assert_array_equal(target.handles[2].history[-1], before)
+        assert target.handles[0].visible
+    finally:
+        controller.close()
+
+
+def test_explicit_replan_supersedes_pending_camera_zoom(ortho_view, wait):
+    source = SimulatedSource(
+        [np.ones((32, 32), np.uint8), np.ones((16, 16), np.uint8)],
+        chunks=[(8, 8)] * 2,
+        transforms=[np.eye(3), np.diag([2.0, 2.0, 1.0])],
+    )
+    canvas = CameraCanvas()
+    controller = NDVController(canvas, source, camera_debounce_ms=80)
+    try:
+        fine_view = ortho_view((32, 32), viewport=(128, 128))
+        controller.update(fine_view)
+        wait(lambda: controller.stream.status.state == "complete")
+        canvas.world_to_clip = ortho_view((32, 32), extent_scale=20).world_to_clip
+        canvas.cameraChanged.emit()
+        controller.update(fine_view)
+        wait(lambda: controller.stream.status.state == "complete")
+        generation = controller.stream.status.generation
+        time.sleep(0.15)
+        assert controller.stream.status.generation == generation
+        assert controller.target._displayed_focus_level == 0
+        assert controller.target.handles[0].visible
+    finally:
+        controller.close()
