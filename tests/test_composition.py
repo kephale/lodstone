@@ -61,6 +61,46 @@ def test_fill_unloaded_chunks_preserves_loaded_detail() -> None:
     assert np.all(destination[4:5, 1:7] == 3)
 
 
+def test_fill_unloaded_chunks_preserves_tiles_smaller_than_native_chunks() -> None:
+    # Dense blocks are often smaller than native chunks (Zebrahub: 64x128x128
+    # blocks in 128x362x362 chunks). Recomposing a reused window must not
+    # overwrite loaded blocks merely because no single block covers a chunk.
+    destination = np.zeros((4, 8), dtype=np.uint8)
+    destination[:, :4] = 9  # two loaded blocks inside the first 4x8 chunk
+    loaded = {Region((0, 0), (2, 4)), Region((2, 0), (4, 4))}
+    content = np.full((4, 8), 3, dtype=np.uint8)
+
+    filled = fill_unloaded_chunks(
+        destination,
+        Region((0, 0), (4, 8)),
+        content,
+        Region((0, 0), (4, 8)),
+        ((4,), (8,)),
+        loaded,
+    )
+
+    assert np.all(destination[:, :4] == 9)
+    assert np.all(destination[:, 4:] == 3)
+    assert filled == (Region((0, 0), (4, 8)),)
+
+
+def test_fill_unloaded_chunks_skips_chunks_covered_by_several_blocks() -> None:
+    destination = np.full((4, 4), 9, dtype=np.uint8)
+    loaded = {Region((0, 0), (2, 4)), Region((2, 0), (4, 4))}
+
+    filled = fill_unloaded_chunks(
+        destination,
+        Region((0, 0), (4, 4)),
+        np.zeros((4, 4), dtype=np.uint8),
+        Region((0, 0), (4, 4)),
+        ((4,), (4,)),
+        loaded,
+    )
+
+    assert filled == ()
+    assert np.all(destination == 9)
+
+
 def test_resampling_rejects_rotated_transform() -> None:
     transform = _transform((1, 1))
     transform[0, 1] = 0.5

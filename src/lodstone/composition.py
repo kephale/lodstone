@@ -112,7 +112,21 @@ def fill_unloaded_chunks(
             continue
         destination_key = _relative_slices(write, destination_region)
         content_key = _relative_slices(write, content_region)
-        destination[destination_key] = content[content_key]
+        # Loaded tiles may be smaller than native chunks; several of them can
+        # cover one chunk jointly or partially. Fill only uncovered voxels so
+        # recomposing a reused window never overwrites loaded detail.
+        covered = np.zeros(write.shape, dtype=bool)
+        for region in loaded_regions:
+            part = region.intersection(write)
+            if part is not None:
+                covered[_relative_slices(part, write)] = True
+        if covered.all():
+            continue
+        if covered.any():
+            uncovered = ~covered
+            destination[destination_key][uncovered] = content[content_key][uncovered]
+        else:
+            destination[destination_key] = content[content_key]
         filled.append(chunk)
     return tuple(filled)
 
