@@ -5,6 +5,12 @@ the 0.1 alpha series and may change between prereleases.
 
 ## Unreleased
 
+- Isolate Blender render preparation from camera replans, restore interactive
+  state on errors, and cancel timers using stable callback identities.
+- Select Blender demo time/channel indices by NGFF axis names, add render
+  lifecycle regressions and make native verification failures exit nonzero.
+  Include a proposed pinned Blender smoke-job patch.
+
 - Add `fit_on_first_publication` so a dense host can keep its own camera.
 - Ignore camera events only during Lodstone's own publication, so a camera moved
   from a host callback replans instead of being dropped.

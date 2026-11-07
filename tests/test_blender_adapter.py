@@ -8,8 +8,46 @@ streaming and rendering) is checked inside Blender by
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
-from lodstone.adapters.blender import MainThreadQueue, blender_viewport_snapshot
+from lodstone.adapters.blender import (
+    MainThreadQueue,
+    blender_fixed_index,
+    blender_viewport_snapshot,
+)
+from lodstone.sources import ArrayPyramidSource
+
+
+@pytest.mark.parametrize(
+    ("axes", "shape", "time", "channel", "expected"),
+    [
+        (("t", "z", "y", "x"), (3, 4, 4, 4), 2, 0, {0: 2}),
+        (("c", "z", "y", "x"), (3, 4, 4, 4), 400, 1, {0: 1}),
+        (("t", "c", "z", "y", "x"), (3, 2, 4, 4, 4), 2, 1, {0: 2, 1: 1}),
+        (("c", "t", "z", "y", "x"), (2, 3, 4, 4, 4), 2, 1, {0: 1, 1: 2}),
+        (("z", "y", "x"), (4, 4, 4), 400, 0, {}),
+    ],
+)
+def test_named_time_channel_selection(axes, shape, time, channel, expected):
+    source = ArrayPyramidSource([np.zeros(shape, dtype=np.uint8)], axes=axes)
+    assert blender_fixed_index(source.pyramid, time=time, channel=channel) == expected
+
+
+@pytest.mark.parametrize("index", [-1, 3])
+def test_time_selection_validates_bounds(index):
+    source = ArrayPyramidSource(
+        [np.zeros((3, 4, 4, 4), dtype=np.uint8)], axes=("t", "z", "y", "x")
+    )
+    with pytest.raises(ValueError, match="t index"):
+        blender_fixed_index(source.pyramid, time=index)
+
+
+def test_unknown_nonspatial_axis_requires_explicit_support():
+    source = ArrayPyramidSource(
+        [np.zeros((3, 4, 4, 4), dtype=np.uint8)], axes=("unknown", "z", "y", "x")
+    )
+    with pytest.raises(ValueError, match="unsupported non-spatial axis"):
+        blender_fixed_index(source.pyramid)
 
 
 class _Matrix:

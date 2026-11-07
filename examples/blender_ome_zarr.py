@@ -29,7 +29,12 @@ import bpy
 import numpy as np
 from mathutils import Quaternion, Vector
 
-from lodstone.adapters.blender import LEVEL_COLORS, BlenderController, emission_material
+from lodstone.adapters.blender import (
+    LEVEL_COLORS,
+    BlenderController,
+    blender_fixed_index,
+    emission_material,
+)
 from lodstone.sources import OMEZarrSource
 
 DEFAULT_URL = (
@@ -90,19 +95,15 @@ def extent_box(
 
 
 def setup(arguments: argparse.Namespace) -> BlenderController:
-    previous = bpy.app.driver_namespace.pop(KEY, None)
-    if previous is not None:
-        previous.close()
     scene = bpy.context.scene
     started = time.perf_counter()
     source = OMEZarrSource.open(arguments.url)
     opened_s = time.perf_counter() - started
     pyramid = source.pyramid
-    fixed = {axis: 0 for axis in range(pyramid.ndim - 3)}
-    if pyramid.ndim >= 5:
-        fixed[0], fixed[1] = arguments.time, arguments.channel
-    elif pyramid.ndim == 4:
-        fixed[0] = arguments.channel
+    fixed = blender_fixed_index(pyramid, time=arguments.time, channel=arguments.channel)
+    previous = bpy.app.driver_namespace.pop(KEY, None)
+    if previous is not None:
+        previous.close()
 
     # Physical extent of the finest level, data order (z, y, x) -> local XYZ.
     finest = pyramid.levels[0]
@@ -278,13 +279,24 @@ class LODSTONE_OT_render_finest(bpy.types.Operator):
         controller = bpy.app.driver_namespace.get(KEY)
         if controller is None:
             return {"CANCELLED"}
-        started = time.perf_counter()
-        plan = controller.prepare_render()
-        controller.info["render_prep_s"] = round(time.perf_counter() - started, 2)
-        controller.info["render_level"] = plan.target_level
-        bpy.ops.render.render("INVOKE_DEFAULT")
+        try:
+            started = time.perf_counter()
+            plan = controller.prepare_render()
+            controller.info["render_prep_s"] = round(time.perf_counter() - started, 2)
+            controller.info["render_level"] = plan.target_level
+            result = bpy.ops.render.render("INVOKE_DEFAULT")
+            if "CANCELLED" in result:
+                controller.finish_render()
+                return {"CANCELLED"}
+        except Exception as error:  # noqa: BLE001 - report and restore the viewport
+            controller.finish_render()
+            controller.error = f"{type(error).__name__}: {error}"
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
 
         def restore():
+            if controller._closed:
+                return None
             if controller.rendering or bpy.app.is_job_running("RENDER"):
                 return 0.25
             controller.finish_render()

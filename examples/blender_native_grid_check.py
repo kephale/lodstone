@@ -15,6 +15,7 @@ Checks:
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 import time
@@ -23,7 +24,14 @@ from pathlib import Path
 argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
 if argv and argv[0].endswith(".whl"):
     sys.path.insert(0, argv.pop(0))
-OUT = Path(argv[0] if argv else ".").resolve()
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("output", nargs="?", type=Path, default=Path("."))
+parser.add_argument("--engine", action="append", choices=("CYCLES", "BLENDER_EEVEE"))
+parser.add_argument("--threads", type=int, default=4)
+arguments = parser.parse_args(argv)
+if arguments.threads < 1:
+    parser.error("--threads must be positive")
+OUT = arguments.output.resolve()
 OUT.mkdir(parents=True, exist_ok=True)
 
 import bpy
@@ -35,6 +43,8 @@ from lodstone.sources import ArrayPyramidSource
 results: dict[str, object] = {}
 bpy.ops.wm.read_factory_settings(use_empty=True)
 scene = bpy.context.scene
+scene.render.threads_mode = "FIXED"
+scene.render.threads = arguments.threads
 
 
 def probe(target, values_shape, positions=None):
@@ -178,7 +188,8 @@ results["prepare_render_s"] = round(time.perf_counter() - started, 3)
 results["controller"] = {
     k: (list(v) if isinstance(v, tuple) else v) for k, v in controller.summary().items()
 }
-for engine in ("CYCLES", "BLENDER_EEVEE"):
+render_checks = []
+for engine in arguments.engine or ("CYCLES", "BLENDER_EEVEE"):
     scene.render.engine = engine
     if engine == "CYCLES":
         scene.cycles.samples = 16
@@ -186,6 +197,16 @@ for engine in ("CYCLES", "BLENDER_EEVEE"):
     started = time.perf_counter()
     bpy.ops.render.render(write_still=True)
     results[f"render_{engine.lower()}_s"] = round(time.perf_counter() - started, 2)
+    image = bpy.data.images.load(scene.render.filepath, check_existing=False)
+    try:
+        pixels = np.asarray(image.pixels[:], dtype=np.float32).reshape(-1, 4)[:, :3]
+        nonconstant = bool(
+            pixels.size and np.isfinite(pixels).all() and np.ptp(pixels) > 1e-4
+        )
+    finally:
+        bpy.data.images.remove(image)
+    results[f"render_{engine.lower()}_nonconstant"] = nonconstant
+    render_checks.append(nonconstant)
 controller.close()
 results["objects_after_close"] = [
     o.name for o in bpy.data.objects if "Lodstone volume" in o.name
@@ -197,7 +218,10 @@ ok = (
     and results["update_in_place_max_abs_error"] < 1e-6
     and results["render_plan_target_level"] == 0
     and not results["objects_after_close"]
+    and all(render_checks)
 )
 results["ok"] = bool(ok)
 (OUT / "check.json").write_text(json.dumps(results, indent=2, default=str))
 print("LODSTONE_CHECK", json.dumps(results, default=str))
+if not ok:
+    raise SystemExit(1)

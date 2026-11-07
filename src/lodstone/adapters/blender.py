@@ -34,6 +34,7 @@ __all__ = [
     "BlenderTarget",
     "MainThreadQueue",
     "blender_camera_snapshot",
+    "blender_fixed_index",
     "blender_viewport_snapshot",
     "grid_node_group",
 ]
@@ -46,6 +47,25 @@ _CARRIER_ATTRIBUTE = "lodstone_value"
 _DATA_TO_LOCAL = np.array(
     [[0, 0, 1, 0], [0, 1, 0, 0], [1, 0, 0, 0], [0, 0, 0, 1]], dtype=np.float64
 )
+
+
+def blender_fixed_index(
+    pyramid: Pyramid, *, time: int = 0, channel: int = 0
+) -> dict[int, int]:
+    """Select named NGFF time/channel axes before the displayed ZYX axes."""
+    if tuple(pyramid.axes[-3:]) != ("z", "y", "x"):
+        raise ValueError("the Blender demo requires trailing z, y, x spatial axes")
+    selections = {"t": time, "c": channel}
+    fixed = {}
+    for axis, name in enumerate(pyramid.axes[:-3]):
+        if name not in selections:
+            raise ValueError(f"unsupported non-spatial axis: {name!r}")
+        value = selections[name]
+        size = pyramid.levels[0].shape[axis]
+        if not 0 <= value < size:
+            raise ValueError(f"{name} index {value} is outside [0, {size})")
+        fixed[axis] = value
+    return fixed
 
 
 def _bpy() -> Any:
@@ -153,6 +173,8 @@ class MainThreadQueue:
         self._items: deque[Callable[[], None]] = deque()
         self._lock = Lock()
         self._registered = False
+        # Blender keys timers by callable identity, not bound-method equality.
+        self._timer_callback = self._tick
 
     def __call__(self, callback: Callable[[], None]) -> None:
         with self._lock:
@@ -185,13 +207,15 @@ class MainThreadQueue:
     def start(self) -> None:
         if not self._registered:
             self._registered = True
-            _bpy().app.timers.register(self._tick, first_interval=self.interval)
+            _bpy().app.timers.register(
+                self._timer_callback, first_interval=self.interval
+            )
 
     def stop(self) -> None:
         bpy = _bpy()
         self._registered = False
-        if bpy.app.timers.is_registered(self._tick):
-            bpy.app.timers.unregister(self._tick)
+        if bpy.app.timers.is_registered(self._timer_callback):
+            bpy.app.timers.unregister(self._timer_callback)
 
 
 def grid_node_group() -> Any:
@@ -632,6 +656,8 @@ class BlenderController(DenseController):
         self._last_state: tuple[tuple[int, int], np.ndarray] | None = None
         self._handlers: list[tuple[Any, Any]] = []
         self._polling = False
+        self._poll_callback = self._poll
+        self._render_restore: tuple[View | None, int, View | None] | None = None
 
     def _make_target(
         self, canvas: Any, pyramid: Pyramid, **options: Any
@@ -663,6 +689,10 @@ class BlenderController(DenseController):
     # -- lifecycle --------------------------------------------------------
     def start(self) -> None:
         """Plan the current viewport and begin polling camera changes."""
+        if self._closed:
+            raise RuntimeError("controller is closed")
+        if self._polling:
+            return
         bpy = _bpy()
         self.queue.start()
         view = self.blender_canvas.view()
@@ -670,7 +700,7 @@ class BlenderController(DenseController):
             self._last_state = (view.viewport, view.world_to_clip)
             self.update(view)
         self._polling = True
-        bpy.app.timers.register(self._poll, first_interval=self.poll_interval)
+        bpy.app.timers.register(self._poll_callback, first_interval=self.poll_interval)
 
         def render_started(*_args: Any) -> None:
             # Runs on Blender's render thread: only set flags here.
@@ -693,7 +723,7 @@ class BlenderController(DenseController):
     def _poll(self) -> float | None:
         if not self._polling:
             return None
-        if self.rendering:
+        if self.rendering or self._camera_updates_paused:
             return self.poll_interval
         try:
             view = self.blender_canvas.view()
@@ -720,40 +750,66 @@ class BlenderController(DenseController):
     # -- final render -----------------------------------------------------
     def prepare_render(self, timeout: float = 120.0) -> Plan:
         """Load the scene camera's view at the render budget; block until done."""
-        bpy = _bpy()
+        if self._closed or self.rendering:
+            raise RuntimeError("cannot prepare a closed or rendering controller")
+        if self._render_restore is not None:
+            self.finish_render()
         canvas = self.blender_canvas
-        view = blender_camera_snapshot(
-            bpy.context.scene, self.root, canvas.displayed_axes, canvas.index
+        self._pause_camera_updates()
+        self._render_restore = (
+            canvas.render_view,
+            self.target.memory_limit,
+            self._last_view,
         )
-        canvas.render_view = view
-        self.set_focus_policy(memory_limit=self.render_memory_limit, replan=False)
-        plan = self.update(view)
-        generation = self.stream.status.generation
-        deadline = time.perf_counter() + timeout
-        while True:
-            self.queue.drain(budget_seconds=0.25)
-            status = self.stream.status
-            if status.generation >= generation and status.state in (
-                "complete",
-                "failed",
-            ):
-                self.queue.drain(budget_seconds=5.0)
-                break
-            if time.perf_counter() > deadline:
-                raise TimeoutError("final-render chunks did not arrive in time")
-            time.sleep(0.01)
-        if status.state == "failed":
-            raise RuntimeError(f"final-render load failed: {status.error!r}")
-        return plan
+        try:
+            view = blender_camera_snapshot(
+                _bpy().context.scene, self.root, canvas.displayed_axes, canvas.index
+            )
+            canvas.render_view = view
+            self.set_focus_policy(memory_limit=self.render_memory_limit, replan=False)
+            plan = self.update(view)
+            generation = self.stream.status.generation
+            deadline = time.perf_counter() + timeout
+            while True:
+                self.queue.drain(budget_seconds=0.25)
+                status = self.stream.status
+                if status.generation != generation:
+                    raise RuntimeError(
+                        "final-render request was superseded or cancelled"
+                    )
+                if status.state == "failed":
+                    raise RuntimeError(f"final-render load failed: {status.error!r}")
+                if status.state == "complete":
+                    self.error = ""
+                    return plan
+                if time.perf_counter() > deadline:
+                    raise TimeoutError("final-render chunks did not arrive in time")
+                time.sleep(0.01)
+        except Exception as error:
+            self.error = f"{type(error).__name__}: {error}"
+            self.finish_render()
+            raise
 
     def finish_render(self) -> None:
         """Return to the interactive budget and the viewport's view."""
-        self.blender_canvas.render_view = None
-        self.set_focus_policy(memory_limit=self.memory_limit, replan=False)
-        view = self.blender_canvas.view()
-        if view is not None:
-            self._last_state = (view.viewport, view.world_to_clip)
-            self.update(view)
+        self._restore_render_state(replan=not self._closed)
+
+    def _restore_render_state(self, *, replan: bool) -> None:
+        previous = self._render_restore
+        if previous is None:
+            return
+        self._render_restore = None
+        self.stream.cancel()
+        self.blender_canvas.render_view, budget, previous_view = previous
+        self.set_focus_policy(memory_limit=budget, replan=False)
+        self._last_view = previous_view
+        try:
+            if replan and previous_view is not None:
+                view = self.blender_canvas.view() or previous_view
+                self._last_state = (view.viewport, view.world_to_clip)
+                self.update(view)
+        finally:
+            self._resume_camera_updates()
 
     # -- diagnostics ------------------------------------------------------
     def summary(self) -> dict[str, Any]:
@@ -780,11 +836,12 @@ class BlenderController(DenseController):
         self._closing = True
         bpy = _bpy()
         self._polling = False
-        if bpy.app.timers.is_registered(self._poll):
-            bpy.app.timers.unregister(self._poll)
+        if bpy.app.timers.is_registered(self._poll_callback):
+            bpy.app.timers.unregister(self._poll_callback)
         for handlers, callback in self._handlers:
             if callback in handlers:
                 handlers.remove(callback)
         self._handlers.clear()
         self.queue.stop()
+        self._restore_render_state(replan=False)
         super().close()
