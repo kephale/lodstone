@@ -2,10 +2,7 @@ diff --git a/.github/workflows/test.yml b/.github/workflows/test.yml
 index 26d6dc8..31752bf 100644
 --- a/.github/workflows/test.yml
 +++ b/.github/workflows/test.yml
-@@ -30,6 +30,23 @@ jobs:
-           python-version: ${{ matrix.python-version }}
-       - run: uv run --extra test pytest
- 
+@@ -32,0 +33,17 @@ jobs:
 +  blender:
 +    runs-on: ubuntu-latest
 +    timeout-minutes: 10
@@ -23,6 +20,3 @@ index 26d6dc8..31752bf 100644
 +      # CPU Cycles keeps this job independent of a display server or GPU.
 +      - run: uv run --with bpy==5.2.3 python examples/blender_native_grid_check.py -- /tmp/blender-check --engine CYCLES
 +
-   quality:
-     runs-on: ubuntu-latest
-     steps:
