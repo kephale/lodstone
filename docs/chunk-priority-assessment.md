@@ -114,3 +114,16 @@ real Zebrahub improvement and cross-backend behavior still require inspection.
 `set_focus_policy` now distinguishes omitted depth arguments from explicit
 None: omission preserves settings, None restores front-to-back or clears the
 focus plane. The demo no longer needs a direct target mutation.
+
+## Zoom presentation corrections
+
+A follow-up visual report described transient double brightness and fine detail
+vanishing after load. Regression tests exposed overlapping intermediate/fine
+visuals and an older debounced camera request superseding an explicit replan.
+The dense target now displays one non-context refinement at a time, reapplies
+the current focus mask when refreshing context, and recomputes the mask on every
+new focus publication even when its bounds are unchanged. Explicit updates
+invalidate pending camera requests; camera submission is serialized with that
+invalidation. These are tested lifecycle corrections, not a verified replay of
+the reported VisPy session. Separate volume visuals still do not provide the
+same ray integration as a single virtual-texture renderer.

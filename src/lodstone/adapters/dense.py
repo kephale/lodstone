@@ -173,6 +173,7 @@ class DenseTarget:
         self.handle: DenseHandle | None = None
         self._context_level = len(pyramid.levels) - 1
         self._masked_focus: tuple[int, Region] | None = None
+        self._displayed_focus_level: int | None = None
         self.on_presented = on_presented
         self._diagnostics_lock = Lock()
         self.content_weight = 0.0
@@ -369,13 +370,27 @@ class DenseTarget:
         handle.set_world_transform(publication.scales, publication.origins)
         handle.set_visible(True)
         self.publications[publication.level] = publication
-        if publication.level == self._context_level:
-            self._masked_focus = None
+        # A phase replaces the previous focus; keeping multiple non-context
+        # visuals alive makes additive backends count overlapping levels twice.
+        if publication.level != self._context_level:
+            for other_level, other_handle in self.handles.items():
+                if other_level not in (self._context_level, publication.level):
+                    other_handle.set_visible(False)
+        self._masked_focus = None
         self.handle = handle
         if first_publication and self.fit_on_first_publication:
             self.canvas.set_range()
         if publication.level != self._context_level:
             self._mask_context(publication)
+        else:
+            # Re-uploading context during a zoom must preserve the mask beneath
+            # the focus still displayed while the replacement is loading.
+            for level, focus in self.publications.items():
+                if level == self._displayed_focus_level:
+                    self._mask_context(focus)
+                    break
+        if publication.level != self._context_level:
+            self._displayed_focus_level = publication.level
         self.canvas.refresh()
         self._record_presentation()
         return True
@@ -393,6 +408,9 @@ class DenseTarget:
     def _finish(self, plan: Plan) -> None:
         self.resident.complete(plan, retain_levels=True)
         keep = {self._context_level, plan.target_level}
+        self._displayed_focus_level = (
+            None if plan.target_level == self._context_level else plan.target_level
+        )
         for level in tuple(self.handles):
             if level not in keep:
                 self.handles.pop(level).remove()
@@ -625,8 +643,12 @@ class DenseController:
         return DenseTarget(canvas, pyramid, **options)
 
     def update(self, view: View) -> Plan:
-        self._last_view = view
-        plan = self.stream.update(view)
+        # Explicit controls supersede any older debounced camera request.
+        with self._camera_condition:
+            self._camera_generation += 1
+            self._pending_camera_view = None
+            self._last_view = view
+            plan = self.stream.update(view)
         self._notify_targeted(plan)
         return plan
 
@@ -726,7 +748,7 @@ class DenseController:
             with self._camera_condition:
                 if self._closed or generation != self._camera_generation:
                     continue
-            self.stream.submit(view, plan)
+                self.stream.submit(view, plan)
             self._notify_targeted(plan)
 
     def _notify_targeted(self, plan: Plan) -> None:
