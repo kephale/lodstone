@@ -1,0 +1,398 @@
+{
+  "study": "Janelia hemibrain / NAVis DA1 olfactory projection-neuron examples",
+  "source": "https://raw.githubusercontent.com/navis-org/navis/4fe56c87fb8c2b0c9f89ceb3a4beb6dbf8f30839/navis/data",
+  "source_revision": "4fe56c87fb8c2b0c9f89ceb3a4beb6dbf8f30839",
+  "source_units": "8 nanometers per coordinate unit",
+  "coordinate_scale_to_um": 0.008,
+  "coverage": {
+    "source_labels": 5,
+    "meshed_labels": 5,
+    "omitted_labels": [],
+    "clipped_labels": [],
+    "scope": "All five bundled neuron meshes, not the whole brain"
+  },
+  "smoothing": {
+    "iterations": 20,
+    "max_displacement_um": 0.15,
+    "max_relative_volume_change": 0.05
+  },
+  "lod_policy": "Constrained regular-edge collapses; source singularity neighborhoods retained exactly, topology checks and source-face-map error certificate",
+  "has_safe_coarse": true,
+  "objects": [
+    {
+      "label_id": 1734350788,
+      "source_name": "DA1_lPN_R",
+      "fine": {
+        "vertices": 17369,
+        "faces": 35106,
+        "components": 14,
+        "euler": 374,
+        "boundary_edges": 6,
+        "nonmanifold_edges": 579
+      },
+      "coarse": {
+        "vertices": 8939,
+        "faces": 18246,
+        "components": 14,
+        "euler": 374,
+        "boundary_edges": 6,
+        "nonmanifold_edges": 579
+      },
+      "target_reduction": 0.4802597846521962,
+      "smoothing_change": {
+        "max_vertex_displacement_um": 0.037500000000050174,
+        "rms_vertex_displacement_um": 0.034844262815985044,
+        "raw_signed_volume_um3": 704.9886784628103,
+        "smooth_signed_volume_um3": 677.4087789456812,
+        "relative_volume_change": -0.039121053088775226,
+        "connectivity_unchanged": true,
+        "component_volume_backoffs": 87,
+        "max_component_relative_volume_change": 0.04758061909261668
+      },
+      "fine_float32_quantization_um": 1.8152919733831682e-05,
+      "coarse_float32_quantization_um": 1.8152919733831682e-05,
+      "surface_distance_upper_bound_um": 0.4997154104749308,
+      "coarse_construction": {
+        "method": "regular-edge midpoint collapses with protected source singularities",
+        "collapses": 8430,
+        "locked_vertices": 3298,
+        "protected_faces": 4526,
+        "protected_faces_exact": true,
+        "requested_reduction": 0.6,
+        "actual_reduction": 0.4802597846521962,
+        "maximum_error_um": 0.5,
+        "surface_distance_upper_bound_um": 0.4997154104749308,
+        "source_face_map_certified": true,
+        "topology_before": {
+          "vertices": 17369,
+          "faces": 35106,
+          "components": 14,
+          "euler": 374,
+          "boundary_edges": 6,
+          "nonmanifold_edges": 579
+        },
+        "topology_after": {
+          "vertices": 8939,
+          "faces": 18246,
+          "components": 14,
+          "euler": 374,
+          "boundary_edges": 6,
+          "nonmanifold_edges": 579
+        }
+      }
+    },
+    {
+      "label_id": 1734350908,
+      "source_name": "DA1_lPN_R",
+      "fine": {
+        "vertices": 19727,
+        "faces": 40007,
+        "components": 10,
+        "euler": 395,
+        "boundary_edges": 14,
+        "nonmanifold_edges": 678
+      },
+      "coarse": {
+        "vertices": 10288,
+        "faces": 21129,
+        "components": 10,
+        "euler": 395,
+        "boundary_edges": 14,
+        "nonmanifold_edges": 678
+      },
+      "target_reduction": 0.4718674232009399,
+      "smoothing_change": {
+        "max_vertex_displacement_um": 0.1500000000000103,
+        "rms_vertex_displacement_um": 0.03510181890485405,
+        "raw_signed_volume_um3": 812.7914003975012,
+        "smooth_signed_volume_um3": 779.917029668568,
+        "relative_volume_change": -0.0404462580593935,
+        "connectivity_unchanged": true,
+        "component_volume_backoffs": 57,
+        "max_component_relative_volume_change": 0.04634516386181975
+      },
+      "fine_float32_quantization_um": 1.8229993078827438e-05,
+      "coarse_float32_quantization_um": 1.8281978038291858e-05,
+      "surface_distance_upper_bound_um": 0.49834415112333286,
+      "coarse_construction": {
+        "method": "regular-edge midpoint collapses with protected source singularities",
+        "collapses": 9439,
+        "locked_vertices": 3871,
+        "protected_faces": 5273,
+        "protected_faces_exact": true,
+        "requested_reduction": 0.6,
+        "actual_reduction": 0.4718674232009399,
+        "maximum_error_um": 0.5,
+        "surface_distance_upper_bound_um": 0.49834415112333286,
+        "source_face_map_certified": true,
+        "topology_before": {
+          "vertices": 19727,
+          "faces": 40007,
+          "components": 10,
+          "euler": 395,
+          "boundary_edges": 14,
+          "nonmanifold_edges": 678
+        },
+        "topology_after": {
+          "vertices": 10288,
+          "faces": 21129,
+          "components": 10,
+          "euler": 395,
+          "boundary_edges": 14,
+          "nonmanifold_edges": 678
+        }
+      }
+    },
+    {
+      "label_id": 722817260,
+      "source_name": "DA1_lPN_R",
+      "fine": {
+        "vertices": 17875,
+        "faces": 36127,
+        "components": 4,
+        "euler": 438,
+        "boundary_edges": 20,
+        "nonmanifold_edges": 672
+      },
+      "coarse": {
+        "vertices": 9552,
+        "faces": 19481,
+        "components": 4,
+        "euler": 438,
+        "boundary_edges": 20,
+        "nonmanifold_edges": 672
+      },
+      "target_reduction": 0.4607634179422593,
+      "smoothing_change": {
+        "max_vertex_displacement_um": 0.004687500000059488,
+        "rms_vertex_displacement_um": 0.004392278004467577,
+        "raw_signed_volume_um3": 658.2939585004378,
+        "smooth_signed_volume_um3": 653.9366067567768,
+        "relative_volume_change": -0.006619158033269734,
+        "connectivity_unchanged": true,
+        "component_volume_backoffs": 21,
+        "max_component_relative_volume_change": 0.04952423768007963
+      },
+      "fine_float32_quantization_um": 1.7793183265170824e-05,
+      "coarse_float32_quantization_um": 1.805913214568221e-05,
+      "surface_distance_upper_bound_um": 0.49511769782807585,
+      "coarse_construction": {
+        "method": "regular-edge midpoint collapses with protected source singularities",
+        "collapses": 8323,
+        "locked_vertices": 3775,
+        "protected_faces": 5197,
+        "protected_faces_exact": true,
+        "requested_reduction": 0.6,
+        "actual_reduction": 0.4607634179422593,
+        "maximum_error_um": 0.5,
+        "surface_distance_upper_bound_um": 0.49511769782807585,
+        "source_face_map_certified": true,
+        "topology_before": {
+          "vertices": 17875,
+          "faces": 36127,
+          "components": 4,
+          "euler": 438,
+          "boundary_edges": 20,
+          "nonmanifold_edges": 672
+        },
+        "topology_after": {
+          "vertices": 9552,
+          "faces": 19481,
+          "components": 4,
+          "euler": 438,
+          "boundary_edges": 20,
+          "nonmanifold_edges": 672
+        }
+      }
+    },
+    {
+      "label_id": 754534424,
+      "source_name": "DA1_lPN_R",
+      "fine": {
+        "vertices": 18095,
+        "faces": 36472,
+        "components": 17,
+        "euler": 404,
+        "boundary_edges": 0,
+        "nonmanifold_edges": 572
+      },
+      "coarse": {
+        "vertices": 9466,
+        "faces": 19214,
+        "components": 17,
+        "euler": 404,
+        "boundary_edges": 0,
+        "nonmanifold_edges": 572
+      },
+      "target_reduction": 0.47318490897126564,
+      "smoothing_change": {
+        "max_vertex_displacement_um": 0.03750000000005534,
+        "rms_vertex_displacement_um": 0.035075176398462124,
+        "raw_signed_volume_um3": 746.1591174532472,
+        "smooth_signed_volume_um3": 715.8827955549432,
+        "relative_volume_change": -0.0405762272283714,
+        "connectivity_unchanged": true,
+        "component_volume_backoffs": 163,
+        "max_component_relative_volume_change": 0.047909454740459045
+      },
+      "fine_float32_quantization_um": 1.8412157548898565e-05,
+      "coarse_float32_quantization_um": 1.8412157548898565e-05,
+      "surface_distance_upper_bound_um": 0.4990285186355712,
+      "coarse_construction": {
+        "method": "regular-edge midpoint collapses with protected source singularities",
+        "collapses": 8629,
+        "locked_vertices": 3530,
+        "protected_faces": 4717,
+        "protected_faces_exact": true,
+        "requested_reduction": 0.6,
+        "actual_reduction": 0.47318490897126564,
+        "maximum_error_um": 0.5,
+        "surface_distance_upper_bound_um": 0.4990285186355712,
+        "source_face_map_certified": true,
+        "topology_before": {
+          "vertices": 18095,
+          "faces": 36472,
+          "components": 17,
+          "euler": 404,
+          "boundary_edges": 0,
+          "nonmanifold_edges": 572
+        },
+        "topology_after": {
+          "vertices": 9466,
+          "faces": 19214,
+          "components": 17,
+          "euler": 404,
+          "boundary_edges": 0,
+          "nonmanifold_edges": 572
+        }
+      }
+    },
+    {
+      "label_id": 754538881,
+      "source_name": "DA1_lPN_R",
+      "fine": {
+        "vertices": 17928,
+        "faces": 36051,
+        "components": 14,
+        "euler": 465,
+        "boundary_edges": 12,
+        "nonmanifold_edges": 596
+      },
+      "coarse": {
+        "vertices": 9343,
+        "faces": 18881,
+        "components": 14,
+        "euler": 465,
+        "boundary_edges": 12,
+        "nonmanifold_edges": 596
+      },
+      "target_reduction": 0.47626972899503484,
+      "smoothing_change": {
+        "max_vertex_displacement_um": 0.018749999999998233,
+        "rms_vertex_displacement_um": 0.00878953306771464,
+        "raw_signed_volume_um3": 722.3083730326094,
+        "smooth_signed_volume_um3": 713.3030223016198,
+        "relative_volume_change": -0.01246745997582821,
+        "connectivity_unchanged": true,
+        "component_volume_backoffs": 108,
+        "max_component_relative_volume_change": 0.04854435914431299
+      },
+      "fine_float32_quantization_um": 1.8146667998290324e-05,
+      "coarse_float32_quantization_um": 1.8281577768578294e-05,
+      "surface_distance_upper_bound_um": 0.4954894547963431,
+      "coarse_construction": {
+        "method": "regular-edge midpoint collapses with protected source singularities",
+        "collapses": 8585,
+        "locked_vertices": 3226,
+        "protected_faces": 4445,
+        "protected_faces_exact": true,
+        "requested_reduction": 0.6,
+        "actual_reduction": 0.47626972899503484,
+        "maximum_error_um": 0.5,
+        "surface_distance_upper_bound_um": 0.4954894547963431,
+        "source_face_map_certified": true,
+        "topology_before": {
+          "vertices": 17928,
+          "faces": 36051,
+          "components": 14,
+          "euler": 465,
+          "boundary_edges": 12,
+          "nonmanifold_edges": 596
+        },
+        "topology_after": {
+          "vertices": 9343,
+          "faces": 18881,
+          "components": 14,
+          "euler": 465,
+          "boundary_edges": 12,
+          "nonmanifold_edges": 596
+        }
+      }
+    }
+  ],
+  "level_errors_um": [
+    1.8412157548898565e-05,
+    0.4997335633946646
+  ],
+  "notes": "All supplied faces retained at fine LOD with original face indices. Coordinates converted from 8 nm units to micrometers. Smoothing is bounded preprocessing before chunking, with per-component volume and local face-orientation guards. This does not establish absence of self-intersection or prove biological thin-process accuracy. Coarse LOD simplifies regular regions while fixing source singularity neighborhoods. A certified source-face map bounds continuous surface displacement by 0.5 micrometers before float32 quantization. Source meshes can already contain nonmanifold edges, disconnected pieces or truncated arbors; their topology diagnostics are retained, not repaired silently. LOD errors are relative to the retained smoothed reference.",
+  "verification": {
+    "level": 0,
+    "reference_faces": 183763,
+    "streamed_faces": 183763,
+    "owner_cells": 254,
+    "oriented_triangle_sha256": "d3efe46a019146327fc5dbdadffc05399e71a7848e69a37e332f7f1218eed727",
+    "exact_after_declared_float32_quantization": true,
+    "retained_reference_matches_label_extraction": false,
+    "retained_reference_matches_source_geometry": true,
+    "declared_smoothing_regenerated": true
+  },
+  "coarse_verification": {
+    "level": 1,
+    "reference_faces": 96951,
+    "streamed_faces": 96951,
+    "owner_cells": 236,
+    "oriented_triangle_sha256": "8ac85c64883b49f449a74def9ad828ab63a6c3c8d7eadf8c416a6d46d0449935",
+    "exact_after_declared_float32_quantization": true,
+    "retained_reference_matches_label_extraction": false,
+    "retained_reference_matches_source_geometry": false,
+    "declared_smoothing_regenerated": false
+  },
+  "camera_replay": [
+    {
+      "case": "warm_repeat",
+      "state": "complete",
+      "level": 0,
+      "displayed_chunks": 254
+    },
+    {
+      "case": "zoom",
+      "state": "complete",
+      "level": 0,
+      "displayed_chunks": 160
+    },
+    {
+      "case": "pan",
+      "state": "complete",
+      "level": 0,
+      "displayed_chunks": 190
+    },
+    {
+      "case": "far",
+      "state": "complete",
+      "level": 1,
+      "displayed_chunks": 236
+    },
+    {
+      "case": "return",
+      "state": "complete",
+      "level": 0,
+      "displayed_chunks": 254
+    },
+    {
+      "case": "rapid_navigation",
+      "state": "complete",
+      "level": 0,
+      "displayed_chunks": 254
+    }
+  ]
+}
