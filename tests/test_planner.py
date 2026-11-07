@@ -717,3 +717,52 @@ def test_renderer_slice_plan_uses_native_keys_and_availability(ortho_view) -> No
     assert [tile.level for tile in plan.wanted] == [0]
     assert plan.desired[0].key in available
     assert plan.retain == {plan.desired[1].key}
+
+
+def test_sparse_crop_spends_budget_on_tiles_not_empty_gap(ortho_view):
+    source = _pyramid()
+    view = ortho_view((256, 256), viewport=(512, 512))
+    all_tiles = (
+        Planner(progressive=False)
+        .plan(source.pyramid, view, Layout(block_shape=(32, 32)))
+        .desired
+    )
+    keep = {all_tiles[0].key, all_tiles[-1].key}
+    invisible = frozenset(t.key for t in all_tiles if t.key not in keep)
+    common = {"block_shape": (32, 32), "memory_policy": "crop", "memory_limit": 4096}
+    sparse = Planner(progressive=False).plan(
+        source.pyramid,
+        view,
+        Layout(kind="tiled", **common),
+        invisible_tiles=invisible,
+    )
+    dense = Planner(progressive=False).plan(
+        source.pyramid,
+        view,
+        Layout(kind="dense", **common),
+        invisible_tiles=invisible,
+    )
+    assert {t.key for t in sparse.desired} == keep
+    assert len(dense.desired) == 1
+    assert sum(t.region.size * 2 for t in sparse.desired) == 4096
+
+
+def test_unknown_content_is_retained_and_invisible_keys_are_selection_specific(
+    ortho_view,
+):
+    source = _pyramid()
+    view = ortho_view((256, 256), viewport=(512, 512))
+    planner = Planner(progressive=False)
+    layout = Layout(block_shape=(32, 32))
+    baseline = planner.plan(source.pyramid, view, layout)
+    key = baseline.desired[0].key
+    filtered = planner.plan(
+        source.pyramid, view, layout, invisible_tiles=frozenset({key})
+    )
+    assert len(filtered.desired) == len(baseline.desired) - 1
+    assert key not in filtered.retain
+    stale = replace(key, selection=(0, 0))
+    assert (
+        planner.plan(source.pyramid, view, layout, invisible_tiles=frozenset({stale}))
+        == baseline
+    )

@@ -54,9 +54,12 @@ class Planner:
         available: frozenset[TileKey] = frozenset(),
         previous_target_level: int | None = None,
         lod_hysteresis: float = 0.0,
+        invisible_tiles: frozenset[TileKey] = frozenset(),
     ) -> Plan:
         """Return an ordered, cache-aware plan for ``view``."""
 
+        # Only pass tiles proven invisible for the current channel, time and
+        # rendering configuration. Unknown content must remain eligible.
         self._validate(pyramid, view, layout)
         if not 0 <= lod_hysteresis < 1:
             raise ValueError("lod_hysteresis must be in [0, 1)")
@@ -86,6 +89,7 @@ class Planner:
                 phase=0,
                 focus_depth_weight=target_depth_weight,
                 focus_depth_target=target_depth,
+                invisible_tiles=invisible_tiles,
             )
             if layout.memory_policy == "crop":
                 if target_tiles:
@@ -112,6 +116,7 @@ class Planner:
                 layout,
                 level_index,
                 phase,
+                invisible_tiles=invisible_tiles,
                 focus_depth_weight=(
                     target_depth_weight if level_index == target_level else None
                 ),
@@ -338,6 +343,7 @@ class Planner:
         *,
         focus_depth_weight: float | None = None,
         focus_depth_target: float | None = None,
+        invisible_tiles: frozenset[TileKey] = frozenset(),
     ) -> list[Tile]:
         level = pyramid.levels[level_index]
         grids = _display_grid(layout, level, view.displayed_axes)
@@ -364,6 +370,8 @@ class Planner:
             if not projected.visible:
                 continue
             key = TileKey(level_index, tuple(grid_index), selection)
+            if key in invisible_tiles:
+                continue
             result.append(
                 Tile(
                     key,
@@ -379,6 +387,17 @@ class Planner:
             )
 
         if layout.memory_policy == "crop":
+            if layout.kind != "dense":
+                selected = []
+                remaining = layout.memory_limit
+                for tile in sorted(
+                    result, key=lambda tile: (tile.priority, tile.key.grid_index)
+                ):
+                    cost = tile.region.size * level.dtype.itemsize
+                    if cost <= remaining:
+                        selected.append(tile)
+                        remaining -= cost
+                return selected
             return _crop_dense_tiles(
                 result,
                 level,
