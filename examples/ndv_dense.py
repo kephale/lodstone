@@ -95,8 +95,17 @@ def main() -> None:
         indicator.adjustSize()
         indicator.raise_()
 
+    coarse_refinement_requested = False
+
     def show_presented_level(publication: NDVPublication) -> None:
-        nonlocal active_level
+        nonlocal active_level, coarse_refinement_requested
+        if (
+            publication.level == len(source.pyramid.levels) - 1
+            and not coarse_refinement_requested
+            and content_toggle.isChecked()
+        ):
+            coarse_refinement_requested = True
+            tune_timer.start()
         active_level = publication.level
         spacing = " × ".join(f"{scale:g}" for scale in publication.scales)
         title = f"Lodstone Zebrahub — rendered L{publication.level} ({spacing})"
@@ -166,11 +175,20 @@ def main() -> None:
         "0% favors high-resolution coverage across the canvas; "
         "100% favors a central column reaching front-to-back"
     )
+    front_toggle = QCheckBox("Front-to-back geometry", controls)
+    front_toggle.setChecked(True)
+    content_toggle = QCheckBox("Prefer coarse fluorescence signal", controls)
+    content_toggle.setChecked(True)
+    content_toggle.setToolTip(
+        "Uses loaded overview to guide refinement; never skips dark chunks"
+    )
     geometry_value = QLabel("waiting", controls)
     blocks_toggle = QCheckBox("Show planned block wireframes", controls)
     blocks_toggle.setChecked(True)
     blocks_toggle.toggled.connect(block_overlay.setVisible)
     form.addRow("Focus MiB", budget_row)
+    form.addRow("Priority", front_toggle)
+    form.addRow("Content", content_toggle)
     form.addRow("Depth reach", depth_row)
     form.addRow("LOD bias", lod_row)
     form.addRow("Focus box", geometry_value)
@@ -193,15 +211,19 @@ def main() -> None:
         lod_value.setText(f"{lod_bias:.2f}")
         controller.set_focus_policy(
             memory_limit=memory_mib * 1024**2,
-            focus_depth_weight=depth_weight,
+            focus_depth_weight=None if front_toggle.isChecked() else depth_weight,
+            content_weight=1.0 if content_toggle.isChecked() else 0.0,
             lod_bias=lod_bias,
             replan=False,
         )
+        depth_slider.setEnabled(not front_toggle.isChecked())
         tune_timer.start()
 
     tune_timer.timeout.connect(lambda: controller.set_focus_policy())
     for slider in (budget_slider, depth_slider, lod_slider):
         slider.valueChanged.connect(configure_focus)
+    front_toggle.toggled.connect(configure_focus)
+    content_toggle.toggled.connect(configure_focus)
     configure_focus()
     tune_timer.stop()
     controls.move(12, 50)

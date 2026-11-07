@@ -83,3 +83,34 @@ alone is not evidence of a better image. Reject a content heuristic if it hides
 dim or fine structures; reject a budget increase if peak residency exceeds the
 configured device allowance. No cross-viewer performance improvement is yet
 measured.
+
+
+## On-the-fly coarse guidance prototype
+
+Kyle prefers using existing pyramid data during viewing over a preprocessing
+requirement. The dense adapter now retains a read-only reference to the loaded
+coarse publication and maps fine candidates through the level transforms into
+that data. No extra source requests are made for this estimate. The maximum
+finite coarse signal above a configurable black level provides a bounded bonus
+against normalized geometric rank. This is fluorescence signal preference,
+not an information-theoretic measure or a calibrated estimate of fine detail.
+
+Enable with `set_focus_policy(content_weight=1.0, content_black_level=0.0)`;
+zero weight restores geometry alone. The ndv demo exposes a checkbox, enables
+it initially and schedules one refinement after its initial overview arrives.
+Later camera/control replans reuse the overview. Other dense hosts can opt in;
+napari's separate adapter has not been wired to this mechanism.
+
+Unknown, nonfinite, uncovered or mismatched hidden-axis content gets no bonus.
+Dark candidates remain eligible. No averaged pyramid value certifies a fine
+region empty. A saturated outlier can dominate the current normalization, and
+dim nuclei may still lose under a tight crop budget. The signal estimate is not
+yet linked automatically to viewer contrast limits, mixing or rendering mode;
+its black level is an explicit caller setting. It uses only the loaded coarsest
+level, not a learned model or multilevel information-gain estimate. The dense
+cuboid constraint remains. Synthetic tests demonstrate interior promotion;
+real Zebrahub improvement and cross-backend behavior still require inspection.
+
+`set_focus_policy` now distinguishes omitted depth arguments from explicit
+None: omission preserves settings, None restores front-to-back or clears the
+focus plane. The demo no longer needs a direct target mutation.

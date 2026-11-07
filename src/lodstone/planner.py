@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
+from dataclasses import replace
 from itertools import product
 
 import numpy as np
@@ -55,6 +56,7 @@ class Planner:
         previous_target_level: int | None = None,
         lod_hysteresis: float = 0.0,
         invisible_tiles: frozenset[TileKey] = frozenset(),
+        content_priority: Callable[[int, Region], float] | None = None,
     ) -> Plan:
         """Return an ordered, cache-aware plan for ``view``."""
 
@@ -90,6 +92,7 @@ class Planner:
                 focus_depth_weight=target_depth_weight,
                 focus_depth_target=target_depth,
                 invisible_tiles=invisible_tiles,
+                content_priority=content_priority,
             )
             if layout.memory_policy == "crop":
                 if target_tiles:
@@ -117,6 +120,7 @@ class Planner:
                 level_index,
                 phase,
                 invisible_tiles=invisible_tiles,
+                content_priority=content_priority,
                 focus_depth_weight=(
                     target_depth_weight if level_index == target_level else None
                 ),
@@ -344,6 +348,7 @@ class Planner:
         focus_depth_weight: float | None = None,
         focus_depth_target: float | None = None,
         invisible_tiles: frozenset[TileKey] = frozenset(),
+        content_priority: Callable[[int, Region], float] | None = None,
     ) -> list[Tile]:
         level = pyramid.levels[level_index]
         grids = _display_grid(layout, level, view.displayed_axes)
@@ -385,6 +390,19 @@ class Planner:
                     phase,
                 )
             )
+
+        if content_priority is not None and result:
+            ordered = sorted(
+                result, key=lambda tile: (tile.priority, tile.key.grid_index)
+            )
+            # Normalize geometry rank before combining with a bounded signal bonus.
+            # A weight of one can promote a bright interior tile above dark foreground.
+            result = []
+            for rank, tile in enumerate(ordered):
+                bonus = float(content_priority(level_index, tile.region))
+                if not math.isfinite(bonus) or bonus < 0:
+                    raise ValueError("content priority must be finite and nonnegative")
+                result.append(replace(tile, priority=rank / len(ordered) - bonus))
 
         if layout.memory_policy == "crop":
             if layout.kind != "dense":

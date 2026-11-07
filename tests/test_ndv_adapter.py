@@ -360,3 +360,62 @@ def test_ndv_focus_policy_can_be_tuned_and_replanned(ortho_view, wait) -> None:
         )
     finally:
         controller.close()
+
+
+def test_focus_policy_can_restore_front_to_back():
+    source = SimulatedSource([np.ones((16, 16), np.uint8)], chunks=[(8, 8)])
+    controller = NDVController(Canvas(), source)
+    try:
+        controller.set_focus_policy(focus_depth_weight=0.5, focus_depth_target=0.5)
+        controller.set_focus_policy(memory_limit=1024)
+        assert controller.target.focus_depth_weight == 0.5
+        controller.set_focus_policy(focus_depth_weight=None, focus_depth_target=None)
+        assert controller.target.focus_depth_weight is None
+        assert controller.target.focus_depth_target is None
+    finally:
+        controller.close()
+
+
+def test_coarse_signal_promotes_interior_without_fine_reads(ortho_view):
+    from lodstone import Planner, Region
+
+    fine = np.zeros((32, 32, 32), np.uint8)
+    coarse = np.zeros((8, 8, 8), np.uint8)
+    coarse[2:4, 2:4, 4:6] = 100
+    source = SimulatedSource(
+        [fine, coarse],
+        chunks=[(8, 8, 8), (4, 4, 4)],
+        transforms=[np.eye(4), np.diag([4.0, 4.0, 4.0, 1.0])],
+    )
+    controller = NDVController(Canvas(), source)
+    try:
+        target = controller.target
+        view = ortho_view(fine.shape)
+        bounds = Region((0, 0, 0), coarse.shape)
+        target._coarse_content = (view.index, bounds, coarse, (bounds,))
+        target.content_weight = 1.0
+        priority = target.content_priority(view)
+        layout = Layout(
+            kind="bricked",
+            block_shape=(8, 8, 8),
+            memory_policy="crop",
+            memory_limit=512,
+        )
+        planner = Planner(progressive=False)
+        geometric = planner.plan(source.pyramid, view, layout)
+        guided = planner.plan(source.pyramid, view, layout, content_priority=priority)
+        assert geometric.desired[0].region.start[2] == 0
+        assert guided.desired[0].region.start == (8, 8, 16)
+        # Soft preference preserves every eligible region when capacity permits.
+        full = planner.plan(
+            source.pyramid,
+            view,
+            Layout(block_shape=(8, 8, 8)),
+            content_priority=priority,
+        )
+        assert len(full.desired) == 64
+        # Missing coverage is unknown, never treated as evidence of emptiness.
+        target._coarse_content = (view.index, bounds, coarse, ())
+        assert target.content_priority(view)(0, Region((8, 8, 16), (16, 16, 24))) == 0
+    finally:
+        controller.close()
