@@ -327,6 +327,71 @@ def test_dense_crop_can_balance_focus_depth_against_screen_center(ortho_view) ->
     )
 
 
+def _look_at_view(eye, forward, up, viewport=(256, 256), near=0.1, far=1000.0):
+    """Perspective view in data-order coordinates (OpenGL conventions)."""
+    eye, forward, up = (np.asarray(v, dtype=np.float64) for v in (eye, forward, up))
+    forward = forward / np.linalg.norm(forward)
+    side = np.cross(forward, up)
+    side /= np.linalg.norm(side)
+    true_up = np.cross(side, forward)
+    world_to_eye = np.eye(4)
+    world_to_eye[0, :3], world_to_eye[1, :3], world_to_eye[2, :3] = (
+        side,
+        true_up,
+        -forward,
+    )
+    world_to_eye[:3, 3] = -world_to_eye[:3, :3] @ eye
+    projection = np.zeros((4, 4))
+    projection[0, 0] = projection[1, 1] = 1.0
+    projection[2, 2] = -(far + near) / (far - near)
+    projection[2, 3] = -2 * far * near / (far - near)
+    projection[3, 2] = -1.0
+    return View(
+        (0, 1, 2),
+        (None, None, None),
+        viewport,
+        projection @ world_to_eye,
+        eye=tuple(float(v) for v in eye),
+    )
+
+
+def test_dense_crop_ignores_chunks_behind_a_camera_inside_the_volume() -> None:
+    # A perspective camera inside the data box, looking along +x. Chunks behind
+    # it project mirrored through the screen center if w is not clipped, and
+    # used to outrank the chunks in view.
+    shape = (64, 64, 64)
+    source = ArrayPyramidSource(
+        [np.zeros(shape, dtype=np.uint8)],
+        axes=("z", "y", "x"),
+        chunks=[(16, 16, 16)],
+    )
+    view = _look_at_view(eye=(32.0, 32.0, 24.0), forward=(0, 0, 1), up=(1, 0, 0))
+    plan = Planner(progressive=False).plan(
+        source.pyramid,
+        view,
+        Layout(
+            block_shape=(16, 16, 16),
+            memory_limit=8 * 16**3,
+            memory_policy="crop",
+            focus_depth_weight=0.5,
+        ),
+    )
+
+    desired = plan.desired or plan.wanted
+    assert desired
+    # Nothing entirely behind the camera (x < 24) is requested.
+    assert all(tile.region.stop[2] > 24 for tile in desired)
+    # The window covers the point straight ahead of the camera.
+    ahead = (32, 32, 40)
+    assert any(
+        all(
+            start <= value < stop
+            for start, stop, value in zip(tile.region.start, tile.region.stop, ahead)
+        )
+        for tile in desired
+    )
+
+
 def test_volume_focus_priority_delivers_center_ray_before_canvas_edges(
     ortho_view,
 ) -> None:

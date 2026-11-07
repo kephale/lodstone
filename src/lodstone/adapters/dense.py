@@ -505,6 +505,7 @@ class DenseController:
         self._pending_camera_view: View | None = None
         self._camera_deadline = 0.0
         self._camera_generation = 0
+        self._camera_updates_paused = False
         self._closed = False
         self.runtime = runtime or Runtime()
         self._owns_runtime = runtime is None
@@ -596,7 +597,11 @@ class DenseController:
         return None
 
     def _camera_changed(self) -> None:
-        if self._last_view is None or self.target.publishing:
+        if (
+            self._last_view is None
+            or self.target.publishing
+            or self._camera_updates_paused
+        ):
             return
         viewport, world_to_clip = self.canvas.camera_state()
         # Scene-bound changes can alter only the depth/near-far transform when
@@ -617,11 +622,24 @@ class DenseController:
         )
         self._last_view = view
         with self._camera_condition:
-            if self._closed:
+            if self._closed or self._camera_updates_paused:
                 return
             self._camera_generation += 1
             self._pending_camera_view = view
             self._camera_deadline = monotonic() + self._camera_debounce_seconds
+            self._camera_condition.notify()
+
+    def _pause_camera_updates(self) -> None:
+        """Invalidate pending/in-flight camera plans before an exclusive update."""
+        with self._camera_condition:
+            self._camera_updates_paused = True
+            self._camera_generation += 1
+            self._pending_camera_view = None
+            self._camera_condition.notify()
+
+    def _resume_camera_updates(self) -> None:
+        with self._camera_condition:
+            self._camera_updates_paused = False
             self._camera_condition.notify()
 
     def _camera_worker(self) -> None:
@@ -641,9 +659,15 @@ class DenseController:
             assert view is not None
             plan = self.stream.plan(view)
             with self._camera_condition:
-                if self._closed or generation != self._camera_generation:
+                if (
+                    self._closed
+                    or self._camera_updates_paused
+                    or generation != self._camera_generation
+                ):
                     continue
-            self.stream.submit(view, plan)
+                # Commit while holding the same lock as pause/invalidation.
+                # A pause must not slip between validation and submission.
+                self.stream.submit(view, plan)
             self._notify_targeted(plan)
 
     def _notify_targeted(self, plan: Plan) -> None:

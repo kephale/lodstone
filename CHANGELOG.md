@@ -5,6 +5,12 @@ the 0.1 alpha series and may change between prereleases.
 
 ## Unreleased
 
+- Isolate Blender render preparation from camera replans, restore interactive
+  state on errors, and cancel timers using stable callback identities.
+- Select Blender demo time/channel indices by NGFF axis names, add render
+  lifecycle regressions and make native verification failures exit nonzero.
+  Run native Blender regressions and a CPU Cycles smoke check in pinned CI.
+
 - Add `fit_on_first_publication` so a dense host can keep its own camera.
 - Ignore camera events only during Lodstone's own publication, so a camera moved
   from a host callback replans instead of being dropped.
@@ -13,6 +19,11 @@ the 0.1 alpha series and may change between prereleases.
 - Record the submitted view and a plan summary in performance snapshots and
   records.
 - Add `vispy_world_to_clip` for hosts that draw through a VisPy view box.
+- Clip perspective projections at the near plane when prioritizing chunks, so
+  chunks behind a camera inside the volume no longer outrank the chunks in view.
+- Add an experimental Blender dense target that streams chunks into native
+  volume grids in memory (geometry nodes), visible to the viewport, EEVEE and
+  Cycles without VDB files, plus a remote OME-Zarr example.
 
 ## 0.1.0a2 - 2026-08-30
 

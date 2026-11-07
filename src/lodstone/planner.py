@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Collection, Mapping, Sequence
-from itertools import product
+from itertools import combinations, product
 
 import numpy as np
 
@@ -864,6 +864,44 @@ class _Projection:
         self.depth = depth
 
 
+def _is_perspective(view: View) -> bool:
+    return not np.allclose(view.world_to_clip[3], (0.0, 0.0, 0.0, 1.0))
+
+
+def _near_clipped_points(corners: np.ndarray, view: View) -> np.ndarray | None:
+    """Project ``product``-ordered box corners clipped against the near plane.
+
+    Dividing by ``w`` for corners behind a perspective camera mirrors them
+    through the screen center and gives them very negative depth, so a chunk
+    behind the viewer could outrank the chunk it is looking at. Keep corners
+    in front of the OpenGL near plane (``z + w >= 0``) and add the points where
+    box edges cross it; their projection bounds the visible part of the box.
+    Returns ``None`` when the whole box is behind the near plane.
+    """
+    homogeneous = np.concatenate(
+        [corners, np.ones((len(corners), 1), dtype=np.float64)], axis=1
+    )
+    clip = (view.world_to_clip @ homogeneous.T).T
+    distance = clip[:, 2] + clip[:, 3]
+    front = distance >= 0
+    if not np.any(front):
+        return None
+    kept = [clip[front]]
+    if not np.all(front):
+        for i, j in combinations(range(len(corners)), 2):
+            # Corners come from ``product`` over per-axis bounds, so box edges
+            # join corners whose indices differ in exactly one bit.
+            bit = i ^ j
+            if front[i] == front[j] or bit & (bit - 1):
+                continue
+            t = distance[i] / (distance[i] - distance[j])
+            kept.append((clip[i] + t * (clip[j] - clip[i]))[np.newaxis])
+    points = np.concatenate(kept)
+    w = points[:, 3]
+    safe = np.where(np.abs(w) < 1e-12, np.nan, w)
+    return points[:, :3] / safe[:, None]
+
+
 def _project_region(matrix: np.ndarray, region: Region, view: View) -> _Projection:
     bounds = [(region.start[axis], region.stop[axis]) for axis in view.displayed_axes]
     data_center = np.asarray(
@@ -876,7 +914,12 @@ def _project_region(matrix: np.ndarray, region: Region, view: View) -> _Projecti
             point[data_axis] = corner[local_axis]
         points.append(point)
     local = _local_world(matrix, np.asarray(points), view.displayed_axes)
-    clip = _clip_points(local, view)
+    if _is_perspective(view):
+        clip = _near_clipped_points(local, view)
+        if clip is None:
+            return _Projection(False, math.inf)
+    else:
+        clip = _clip_points(local, view)
     finite = np.all(np.isfinite(clip), axis=1)
     if not np.any(finite):
         return _Projection(False, math.inf)
