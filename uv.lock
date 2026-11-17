@@ -702,7 +702,7 @@ requires-dist = [
     { name = "zarr", marker = "extra == 'ome-zarr'", specifier = ">=3" },
     { name = "zarr", marker = "extra == 'test'", specifier = ">=3" },
     { name = "zarr", marker = "extra == 'zarr'", specifier = ">=3" },
-    { name = "zarr-vectors", marker = "extra == 'mesh'", git = "https://github.com/kephale/zarr-vectors-py?rev=40bd38045e0c23019c5c88a54824b89f89243e4e" },
+    { name = "zarr-vectors", marker = "extra == 'mesh'", git = "https://github.com/AllenInstitute/zarr-vectors-py?rev=1ea7de4812ec5ad81610b42f5f58a426bf29c935" },
 ]
 provides-extras = ["zarr", "datasets", "ome-zarr", "mesh", "mesh-demo", "biological-demo", "test"]
 
@@ -2055,8 +2055,8 @@ wheels = [
 
 [[package]]
 name = "zarr-vectors"
-version = "0.9.3.dev5+g40bd38045"
-source = { git = "https://github.com/kephale/zarr-vectors-py?rev=40bd38045e0c23019c5c88a54824b89f89243e4e#40bd38045e0c23019c5c88a54824b89f89243e4e" }
+version = "0.9.3.dev14+g1ea7de481"
+source = { git = "https://github.com/AllenInstitute/zarr-vectors-py?rev=1ea7de4812ec5ad81610b42f5f58a426bf29c935#1ea7de4812ec5ad81610b42f5f58a426bf29c935" }
 dependencies = [
     { name = "numcodecs" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },

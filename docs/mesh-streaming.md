@@ -13,7 +13,7 @@ pip install -e ".[mesh]"                   # headless mesh support
 uv sync --frozen --extra biological-demo   # include the neuron viewer
 ```
 
-The mesh extras pin [this Zarr Vectors fork commit](https://github.com/kephale/zarr-vectors-py/commit/40bd38045e0c23019c5c88a54824b89f89243e4e).
+The mesh extras pin [the accepted upstream Zarr Vectors reader](https://github.com/AllenInstitute/zarr-vectors-py/commit/1ea7de4812ec5ad81610b42f5f58a426bf29c935).
 No sibling checkout is needed. Replace the Git pin with a released reader before
 [publishing to PyPI](https://github.com/pypi/warehouse/blob/main/warehouse/forklift/metadata.py).
 
@@ -73,4 +73,17 @@ uv run --extra test pytest
 Synthetic lifecycle and geometry tests run offline in CI. Public-data reference
 checks need a prepared cache. [Neuron checks](../examples/data/hemibrain-reference-validation.json) ·
 [Nessys checks](../examples/data/idr0062-reference-validation.json) ·
-[Independent reader reproducer](https://github.com/kephale/zarr-vectors-py/blob/feat/bounded-mesh-reads/docs/upstream/mesh-streaming-review.md)
+[Independent reader reproducer](https://github.com/AllenInstitute/zarr-vectors-py/blob/1ea7de4812ec5ad81610b42f5f58a426bf29c935/docs/upstream/mesh-streaming-review.md)
+
+### Upstream integration check
+
+The pinned upstream commit includes the accepted ownership reader and its
+scoped-link integration. Consumer validation on 2026-11-17 passed the full
+Python 3.14 suite (209 tests), plus the opt-in cached microscopy reference and
+both neuron LOD references. Python 3.11 passed 22 headless mesh consumer tests.
+
+The curved 4×4 tile fixture in `tests/test_mesh_seams.py` reconstructs all 32
+oriented triangles exactly once. Its 40 internal edges each have two incident
+faces and its 16 outer edges have one. This checks geometric continuity across
+owner boundaries; it does not establish seamless lighting. The PyGFX target
+still computes normals per chunk, so curved surfaces can show shading seams.

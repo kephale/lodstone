@@ -167,7 +167,7 @@ def test_zarr_vectors_boundary_triangle_and_affine(tmp_path):
     from zarr_vectors import building
 
     if not hasattr(building, "MeshReader"):
-        pytest.skip("requires companion mesh reader branch")
+        pytest.skip("requires upstream MeshReader")
     from lodstone.sources.zarr_vectors import ZarrVectorsMeshSource
 
     vertices = np.array(

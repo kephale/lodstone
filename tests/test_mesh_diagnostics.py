@@ -38,7 +38,7 @@ def test_counted_mesh_source_reads_only_required_payload(tmp_path):
     from zarr_vectors import building
 
     if not hasattr(building, "MeshReader"):
-        pytest.skip("requires companion reader branch")
+        pytest.skip("requires upstream MeshReader")
     from lodstone.sources.zarr_vectors import ZarrVectorsMeshSource
 
     path = tmp_path / "mesh.zv"

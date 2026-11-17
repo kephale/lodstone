@@ -24,7 +24,7 @@ class ZarrVectorsMeshSource:
     Errors must be supplied in world units; storage bin sizes and object
     sparsity are not geometric error estimates. Coordinates are used as stored,
     with an optional explicit affine transform into the viewer's XYZ frame.
-    Requires the companion MeshReader branch until it is accepted upstream.
+    Requires the upstream MeshReader with metadata snapshot lifecycle support.
     """
 
     def __init__(
@@ -44,7 +44,7 @@ class ZarrVectorsMeshSource:
         except (ImportError, AttributeError) as error:
             raise ImportError(
                 "ZarrVectorsMeshSource requires zarr-vectors with building.MeshReader; "
-                "see docs/mesh-streaming.md for the companion branch"
+                "see docs/mesh-streaming.md for the pinned upstream reader"
             ) from error
         if max_read_bytes <= 0:
             raise ValueError("max_read_bytes must be positive")
