@@ -2,7 +2,7 @@
 # requires-python = ">=3.13,<3.14"
 # dependencies = [
 #   "lodstone @ git+https://github.com/kephale/lodstone@270c7ac784816209f3a65649231dfffea16c3d89",
-#   "zarr-vectors @ git+https://github.com/AllenInstitute/zarr-vectors-py@1ea7de4812ec5ad81610b42f5f58a426bf29c935",
+#   "zarr-vectors==0.9.4",
 #   "numpy==2.5.1",
 #   "zarr==3.3.0",
 #   "pygfx==0.17.0",

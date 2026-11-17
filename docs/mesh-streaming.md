@@ -13,9 +13,9 @@ pip install -e ".[mesh]"                   # headless mesh support
 uv sync --frozen --extra biological-demo   # include the neuron viewer
 ```
 
-The mesh extras pin [the accepted upstream Zarr Vectors reader](https://github.com/AllenInstitute/zarr-vectors-py/commit/1ea7de4812ec5ad81610b42f5f58a426bf29c935).
-No sibling checkout is needed. Replace the Git pin with a released reader before
-[publishing to PyPI](https://github.com/pypi/warehouse/blob/main/warehouse/forklift/metadata.py).
+The mesh extras pin [Zarr Vectors 0.9.4](https://github.com/AllenInstitute/zarr-vectors-py/releases/tag/v0.9.4),
+which includes the accepted ownership reader and scoped-link integration.
+The package installs from PyPI; no Git dependency or sibling checkout is needed.
 
 ## Open your own mesh
 
@@ -79,10 +79,10 @@ checks need a prepared cache. [Neuron checks](../examples/data/hemibrain-referen
 
 ### Upstream integration check
 
-The pinned upstream commit includes the accepted ownership reader and its
+The pinned 0.9.4 release includes the accepted ownership reader and its
 scoped-link integration. Consumer validation on 2026-11-17 passed the full
-Python 3.14 suite (209 tests), plus the opt-in cached microscopy reference and
-both neuron LOD references. Python 3.11 passed 22 headless mesh consumer tests.
+Python 3.14 suite (236 tests), including the opt-in cached microscopy reference
+and both neuron LOD references. Python 3.11 passed 22 headless mesh consumer tests.
 
 The curved 4×4 tile fixture in `tests/test_mesh_seams.py` reconstructs all 32
 oriented triangles exactly once. Its 40 internal edges each have two incident

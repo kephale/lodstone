@@ -26,9 +26,8 @@ dependencies = ["numpy>=1.26"]
 zarr = ["zarr>=3"]
 datasets = ["zarr>=3"]
 ome-zarr = ["zarr>=3", "fsspec>=2024.2", "aiohttp>=3.10"]
-# Accepted upstream MeshReader after the scoped-link integration (#41/#43).
-# Replace with an upstream release containing MeshReader before publishing to PyPI.
-mesh = ["zarr-vectors @ git+https://github.com/AllenInstitute/zarr-vectors-py@1ea7de4812ec5ad81610b42f5f58a426bf29c935"]
+# Released ownership reader, verified with the mesh consumer and seam checks.
+mesh = ["zarr-vectors==0.9.4"]
 mesh-demo = ["lodstone[mesh]", "pygfx>=0.17", "rendercanvas>=2.7", "glfw>=2", "imageio>=2"]
 biological-demo = ["lodstone[mesh-demo]", "scikit-image>=0.26", "scipy>=1.17", "fast-simplification>=0.2", "psutil>=7"]
 test = ["lodstone[mesh]", "dask[array]>=2022.1.1", "pytest>=8", "zarr>=3", "scipy>=1.17", "scikit-image>=0.26", "fast-simplification>=0.2"]
