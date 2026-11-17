@@ -6,10 +6,10 @@ import asyncio
 import threading
 from collections import OrderedDict
 from collections.abc import Callable, Sequence
-from concurrent.futures import Future
+from concurrent.futures import CancelledError, Future
 from dataclasses import dataclass
 from itertools import product
-from typing import Protocol
+from typing import Protocol, Self
 
 import numpy as np
 
@@ -106,30 +106,52 @@ class MeshStreamSnapshot:
     error: str | None
 
 
-def visible_chunks(level: MeshLevel, view: View) -> tuple[MeshChunk, ...]:
-    """Conservative homogeneous frustum culling, nearest screen center first."""
+_CORNERS = np.array(list(product((0, 1), repeat=3)))
+
+
+def _corners(level: MeshLevel) -> np.ndarray:
+    """Return the eight XYZ corners of every chunk bound, shape (N, 8, 3)."""
+    bounds = np.asarray([chunk.bounds for chunk in level.chunks], dtype=float)
+    return bounds[:, _CORNERS, np.arange(3)]
+
+
+def _homogeneous(points: np.ndarray) -> np.ndarray:
+    return np.concatenate([points, np.ones((*points.shape[:-1], 1))], axis=-1)
+
+
+def _visible(level: MeshLevel, view: View) -> tuple[list[int], np.ndarray]:
     if view.displayed_axes != (0, 1, 2):
         raise ValueError("mesh views must use displayed_axes=(0, 1, 2) in XYZ order")
-    selected = []
-    for chunk in level.chunks:
-        points = np.asarray(list(product(*zip(*chunk.bounds))), dtype=float)
-        clip = np.column_stack([points, np.ones(len(points))]) @ view.world_to_clip.T
-        # Reject only when every corner is outside the same clip plane. This
-        # remains conservative for boxes crossing the eye or near plane.
-        w = clip[:, 3:4]
-        if np.any(np.all(clip[:, :3] < -w, axis=0)) or np.any(
-            np.all(clip[:, :3] > w, axis=0)
-        ):
-            continue
-        center = np.mean(points, axis=0)
-        projected = view.world_to_clip @ np.append(center, 1)
-        priority = (
-            float(np.sum((projected[:2] / projected[3]) ** 2))
-            if projected[3] > 0
-            else 0.0
+    if not level.chunks:
+        return [], np.empty((0, 8, 3))
+    corners = _corners(level)
+    clip = _homogeneous(corners) @ view.world_to_clip.T
+    # Reject only when every corner is outside the same clip plane. This
+    # remains conservative for boxes crossing the eye or near plane.
+    xyz, w = clip[..., :3], clip[..., 3:4]
+    outside = np.any(np.all(xyz < -w, axis=1), axis=1) | np.any(
+        np.all(xyz > w, axis=1), axis=1
+    )
+    kept = np.flatnonzero(~outside)
+    projected = _homogeneous(corners[kept].mean(axis=1)) @ view.world_to_clip.T
+    with np.errstate(divide="ignore", invalid="ignore"):
+        priority = np.where(
+            projected[:, 3] > 0,
+            np.sum((projected[:, :2] / projected[:, 3:4]) ** 2, axis=1),
+            0.0,
         )
-        selected.append((priority, chunk.key, chunk))
-    return tuple(item[2] for item in sorted(selected))
+    order = sorted(
+        range(len(kept)),
+        key=lambda i: (float(priority[i]), level.chunks[kept[i]].key),
+    )
+    indices = [int(kept[i]) for i in order]
+    return indices, corners[indices]
+
+
+def visible_chunks(level: MeshLevel, view: View) -> tuple[MeshChunk, ...]:
+    """Conservative homogeneous frustum culling, nearest screen center first."""
+    indices, _ = _visible(level, view)
+    return tuple(level.chunks[i] for i in indices)
 
 
 def select_mesh_level(levels: tuple[MeshLevel, ...], view: View, pixels: float) -> int:
@@ -140,30 +162,22 @@ def select_mesh_level(levels: tuple[MeshLevel, ...], view: View, pixels: float) 
     """
     if not levels or not np.isfinite(pixels) or pixels <= 0:
         raise ValueError("levels and a finite positive pixel threshold are required")
+    half_viewport = np.asarray(view.viewport, dtype=float) / 2
     for index in reversed(range(len(levels))):
         level = levels[index]
-        worst = 0.0
-        for chunk in visible_chunks(level, view):
-            for corner in product(*zip(*chunk.bounds)):
-                p = np.append(corner, 1.0)
-                a = view.world_to_clip @ p
-                if a[3] <= 0:
-                    worst = float("inf")
-                    break
-                # Project a cube enclosing the error ball; checking only axes
-                # can underestimate diagonal screen-space displacement.
-                for displacement in product((-level.error, level.error), repeat=3):
-                    q = p.copy()
-                    q[:3] += displacement
-                    b = view.world_to_clip @ q
-                    if b[3] <= 0:
-                        worst = float("inf")
-                        break
-                    delta = (
-                        (b[:2] / b[3] - a[:2] / a[3]) * np.asarray(view.viewport) / 2
-                    )
-                    worst = max(worst, float(np.linalg.norm(delta)))
-        if worst <= pixels:
+        _, corners = _visible(level, view)
+        if not len(corners):
+            return index
+        points = corners.reshape(-1, 3)
+        a = _homogeneous(points) @ view.world_to_clip.T
+        # Project a cube enclosing the error ball; checking only axes
+        # can underestimate diagonal screen-space displacement.
+        displaced = points[:, None, :] + (2 * _CORNERS - 1) * level.error
+        b = _homogeneous(displaced) @ view.world_to_clip.T
+        if np.any(a[:, 3] <= 0) or np.any(b[..., 3] <= 0):
+            continue
+        delta = b[..., :2] / b[..., 3:4] - (a[:, None, :2] / a[:, None, 3:4])
+        if float(np.max(np.linalg.norm(delta * half_viewport, axis=-1))) <= pixels:
             return index
     return 0
 
@@ -255,7 +269,16 @@ class MeshStream:
         self.limited, self.error = False, None
         completed_phase = False
         try:
-            for level in reversed(range(selected, len(self.source.levels))):
+            with self._lock:
+                displayed = self.displayed_level
+            # Refine from the displayed level, not the coarsest: re-showing
+            # coarser geometry on every camera move would flicker.
+            start = (
+                len(self.source.levels) - 1
+                if displayed is None
+                else max(selected, displayed)
+            )
+            for level in reversed(range(selected, start + 1)):
                 staged: list[tuple[MeshKey, MeshData]] = []
                 pinned: set[MeshKey] = set()
                 phase_bytes = 0
@@ -375,8 +398,13 @@ class MeshStream:
     def wait(self, timeout: float = 30.0) -> None:
         """Wait for reads and host publication; never call on the GUI thread."""
         future = self._future
-        if future is not None:
+        if future is None:
+            return
+        try:
             future.result(timeout)
+        except CancelledError:
+            if not self._closed:
+                raise
 
     def snapshot(self) -> MeshStreamSnapshot:
         """Return the current observable status, including failures and limits."""
@@ -398,6 +426,12 @@ class MeshStream:
                 self.limited,
                 str(self.error) if self.error else None,
             )
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
 
     def close(self) -> None:
         """Cancel stream-owned work without stopping a borrowed runtime.

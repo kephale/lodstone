@@ -14,7 +14,7 @@ These close-ups use the same camera and scale.
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and Git:
 
 ```bash
-uv run https://raw.githubusercontent.com/kephale/lodstone/refs/heads/feat/zarr-vectors-mesh-streaming/examples/biological_mesh.py
+uv run https://raw.githubusercontent.com/kephale/lodstone/refs/heads/main/examples/biological_mesh.py
 ```
 
 The first run downloads about 3.5 MB and builds the surfaces, which can take a

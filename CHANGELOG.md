@@ -5,6 +5,10 @@ the 0.1 alpha series and may change between prereleases.
 
 ## Unreleased
 
+- Add experimental `MeshStream` for view-dependent triangle-mesh LOD with
+  frustum culling, bounded decoded caches and atomic level replacement.
+- Add `ZarrVectorsMeshSource` (optional `mesh` extra) and a PyGFX mesh target.
+- Add neuron and Nessys biological mesh demos.
 - Add `fit_on_first_publication` so a dense host can keep its own camera.
 - Ignore camera events only during Lodstone's own publication, so a camera moved
   from a host callback replans instead of being dropped.

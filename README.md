@@ -20,7 +20,7 @@ Mesh support is available from the development source. Try the neuron viewer
 with [uv](https://docs.astral.sh/uv/getting-started/installation/) and Git:
 
 ```bash
-uv run https://raw.githubusercontent.com/kephale/lodstone/refs/heads/feat/zarr-vectors-mesh-streaming/examples/biological_mesh.py
+uv run https://raw.githubusercontent.com/kephale/lodstone/refs/heads/main/examples/biological_mesh.py
 ```
 
 ## Explore

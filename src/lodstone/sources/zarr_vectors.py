@@ -34,7 +34,7 @@ class ZarrVectorsMeshSource:
         level_errors: Sequence[float],
         stored_levels: Sequence[int] | None = None,
         transform: np.ndarray | None = None,
-        max_read_bytes: int = 128 << 20,
+        max_read_bytes: int | None = 128 << 20,
         track_io: bool = False,
     ) -> None:
         try:
@@ -46,8 +46,8 @@ class ZarrVectorsMeshSource:
                 "ZarrVectorsMeshSource requires zarr-vectors with building.MeshReader; "
                 "see docs/mesh-streaming.md for the pinned upstream reader"
             ) from error
-        if max_read_bytes <= 0:
-            raise ValueError("max_read_bytes must be positive")
+        if max_read_bytes is not None and max_read_bytes <= 0:
+            raise ValueError("max_read_bytes must be positive or None")
         self.max_read_bytes = max_read_bytes
         self.io = StoreReadCounter()
         if track_io:
@@ -81,6 +81,10 @@ class ZarrVectorsMeshSource:
             raise ValueError("transform must be a finite 4 by 4 matrix")
         if not np.array_equal(self._transform[3], [0, 0, 0, 1]):
             raise ValueError("mesh transform must be affine")
+        self._identity = np.array_equal(self._transform, np.eye(4))
+        # A mirroring transform reverses winding; swap two corners to keep
+        # outward normals.
+        self._mirrors = bool(np.linalg.det(self._transform[:3, :3]) < 0)
         self._lock = threading.Lock()
         with ExitStack() as cleanup:
             readers = []
@@ -117,9 +121,16 @@ class ZarrVectorsMeshSource:
     def _read(self, level: int, key: tuple[int, ...]) -> MeshData:
         with self._lock:
             result = self._readers[level].read([key], max_bytes=self.max_read_bytes)
-        vertices = result["vertices"]
+        vertices, faces = result["vertices"], result["faces"]
+        if self._identity:
+            return MeshData(vertices, faces)
         moved = vertices @ self._transform[:3, :3].T + self._transform[:3, 3]
-        return MeshData(moved, result["faces"])
+        if self._mirrors:
+            faces = faces[:, [0, 2, 1]]
+        # Keep the stored precision so decoded bytes match memory_limit.
+        if np.issubdtype(vertices.dtype, np.floating):
+            moved = moved.astype(vertices.dtype, copy=False)
+        return MeshData(moved, faces)
 
     def close(self) -> None:
         """Serialize reader cleanup with any remaining blocking read."""

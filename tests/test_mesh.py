@@ -75,6 +75,8 @@ def test_coarse_to_fine_and_cached_revisit():
         stream.update(view(), level=0)
         stream.wait()
         assert stream.reads == 2
+        # A camera move refines from the displayed level, not the coarsest.
+        assert [level for level, _ in target.phases] == [1, 0, 0]
         assert stream.cache_bytes <= stream.memory_limit
         stream.update(view(0.01), level=1)
         stream.wait()
@@ -187,6 +189,17 @@ def test_zarr_vectors_boundary_triangle_and_affine(tmp_path):
     result = asyncio.run(source.read(0, (0, 0, 0)))
     expected = vertices @ transform[:3, :3].T + transform[:3, 3]
     np.testing.assert_array_equal(result.vertices[result.faces], expected[[[2, 1, 0]]])
+    assert result.vertices.dtype == np.float32
+
+    # Mirroring keeps outward winding; an unbudgeted read is also allowed.
+    mirror = np.diag([-1.0, 1.0, 1.0, 1.0])
+    mirrored = ZarrVectorsMeshSource(
+        tmp_path / "mesh.zv", level_errors=[0.0], transform=mirror, max_read_bytes=None
+    )
+    flipped = asyncio.run(mirrored.read(0, (0, 0, 0)))
+    np.testing.assert_array_equal(
+        flipped.vertices[flipped.faces], (vertices * [-1, 1, 1])[[[2, 0, 1]]]
+    )
 
 
 def test_source_budget_failure_keeps_coarse_phase():

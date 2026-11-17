@@ -58,6 +58,8 @@ blocking read to finish. Use `wait()` only off the GUI thread.
 - `memory_limit` bounds decoded cache and staging data. If finer detail does not
   fit, the completed coarse surface stays visible. The whole process can use more memory.
 - `max_read_bytes` checks dependency sizes before loading vertex payloads.
+  It needs levels written with a verified `fragments_tile` claim; pass `None`
+  for other stores.
   Metadata and decoder scratch use additional memory.
 - Chunk-local normals can show shading seams. Large coordinates may need a
   camera-relative origin to preserve fine detail on the GPU.
