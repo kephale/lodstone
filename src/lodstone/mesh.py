@@ -273,68 +273,77 @@ class MeshStream:
                 displayed = self.displayed_level
             # Refine from the displayed level, not the coarsest: re-showing
             # coarser geometry on every camera move would flicker.
-            start = (
-                len(self.source.levels) - 1
-                if displayed is None
-                else max(selected, displayed)
-            )
-            for level in reversed(range(selected, start + 1)):
-                staged: list[tuple[MeshKey, MeshData]] = []
-                pinned: set[MeshKey] = set()
-                phase_bytes = 0
-                chunks = visible_chunks(self.source.levels[level], view)
-                with self._lock:
-                    if not self._current(generation):
-                        return
-                    self.phase_chunks_done, self.phase_chunks_total = 0, len(chunks)
-                    self.staged_bytes = 0
-                for chunk in chunks:
-                    if not self._current(generation):
-                        return
-                    key = (level, chunk.key)
-                    with self._lock:
-                        data = self._cache.get(key)
-                    if data is None:
+            coarsest = len(self.source.levels) - 1
+            start = coarsest if displayed is None else max(selected, displayed)
+            while True:
+                try:
+                    for level in reversed(range(selected, start + 1)):
+                        staged: list[tuple[MeshKey, MeshData]] = []
+                        pinned: set[MeshKey] = set()
+                        phase_bytes = 0
+                        chunks = visible_chunks(self.source.levels[level], view)
+                        with self._lock:
+                            if not self._current(generation):
+                                return
+                            self.phase_chunks_done, self.phase_chunks_total = (
+                                0,
+                                len(chunks),
+                            )
+                            self.staged_bytes = 0
+                        for chunk in chunks:
+                            if not self._current(generation):
+                                return
+                            key = (level, chunk.key)
+                            with self._lock:
+                                data = self._cache.get(key)
+                            if data is None:
+                                try:
+                                    data = await self.source.read(level, chunk.key)
+                                except MemoryError:
+                                    self.limited = True
+                                    if completed_phase:
+                                        return
+                                    raise
+                                self.reads += 1
+                                if not self._current(generation):
+                                    self.stale_reads += 1
+                                    return
+                            else:
+                                self.cache_hits += 1
+                            phase_bytes += data.nbytes
+                            if phase_bytes > self.memory_limit:
+                                self.limited = True
+                                if not completed_phase:
+                                    raise MemoryError(
+                                        "visible coarse mesh exceeds memory_limit"
+                                    )
+                                return
+                            if not self._remember(generation, key, data, pinned):
+                                return
+                            pinned.add(key)
+                            staged.append((key, data))
+                            with self._lock:
+                                if not self._current(generation):
+                                    return
+                                self.staged_bytes = phase_bytes
+                                self.phase_chunks_done += 1
+                        if not self._current(generation):
+                            return
                         try:
-                            data = await self.source.read(level, chunk.key)
+                            await self._publish(generation, level, staged)
                         except MemoryError:
                             self.limited = True
                             if completed_phase:
                                 return
                             raise
-                        self.reads += 1
-                        if not self._current(generation):
-                            self.stale_reads += 1
-                            return
-                    else:
-                        self.cache_hits += 1
-                    phase_bytes += data.nbytes
-                    if phase_bytes > self.memory_limit:
-                        self.limited = True
-                        if not completed_phase:
-                            raise MemoryError(
-                                "visible coarse mesh exceeds memory_limit"
-                            )
-                        return
-                    if not self._remember(generation, key, data, pinned):
-                        return
-                    pinned.add(key)
-                    staged.append((key, data))
-                    with self._lock:
-                        if not self._current(generation):
-                            return
-                        self.staged_bytes = phase_bytes
-                        self.phase_chunks_done += 1
-                if not self._current(generation):
-                    return
-                try:
-                    await self._publish(generation, level, staged)
+                        completed_phase = True
+                    break
                 except MemoryError:
-                    self.limited = True
-                    if completed_phase:
-                        return
-                    raise
-                completed_phase = True
+                    if completed_phase or start == coarsest:
+                        raise
+                    # The skipped-ahead phase does not fit; fall back to
+                    # coarse-to-fine so the documented coarse surface remains.
+                    start, self.limited = coarsest, False
         except Exception as error:
             if self._current(generation):
                 self.error = error

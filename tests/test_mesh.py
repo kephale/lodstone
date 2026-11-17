@@ -106,6 +106,40 @@ def test_budget_preserves_completed_coarse_phase():
         stream.close()
 
 
+def test_oversized_pan_falls_back_to_coarse_phase():
+    small = MeshChunk((0,), ((0.0, 0.0, 0.0), (0.5, 0.5, 0.5)))
+    dense = MeshChunk((1,), ((3.0, 0.0, 0.0), (3.5, 0.5, 0.5)))
+    overview = MeshChunk((0,), ((0.0, 0.0, 0.0), (3.5, 0.5, 0.5)))
+
+    class Panned(Source):
+        levels = (MeshLevel((small, dense), 0.0), MeshLevel((overview,), 0.1))
+
+        async def read(self, level, key):
+            if (level, key) == (0, (1,)):
+                return MeshData(np.zeros((1000, 3), np.float32), np.zeros((1, 3), int))
+            return triangle()
+
+    def panned(x):
+        matrix = np.eye(4)
+        matrix[0, 3] = x
+        return View((0, 1, 2), (None, None, None), (100, 100), matrix)
+
+    target = Target()
+    stream = MeshStream(Panned(), target, memory_limit=4000)
+    try:
+        stream.update(panned(0.0), level=0)
+        stream.wait()
+        # Skipping ahead from the displayed fine level does not fit, so the
+        # stream restores the coarse surface instead of failing.
+        stream.update(panned(-3.2), level=0)
+        stream.wait()
+        assert [level for level, _ in target.phases] == [1, 0, 1]
+        assert stream.limited and stream.displayed_level == 1
+        assert stream.error is None
+    finally:
+        stream.close()
+
+
 def test_oversized_coarse_fails_instead_of_silently_cropping():
     stream = MeshStream(Source(), Target(), memory_limit=1)
     try:
