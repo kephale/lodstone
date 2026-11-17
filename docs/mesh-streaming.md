@@ -13,8 +13,9 @@ pip install -e ".[mesh]"                   # headless mesh support
 uv sync --frozen --extra biological-demo   # include the neuron viewer
 ```
 
-The mesh extras pin [Zarr Vectors 0.9.4](https://github.com/AllenInstitute/zarr-vectors-py/releases/tag/v0.9.4),
-which includes the accepted ownership reader and scoped-link integration.
+The mesh extras require [Zarr Vectors 0.9.4](https://github.com/AllenInstitute/zarr-vectors-py/releases/tag/v0.9.4),
+or a later 0.9 release, which include the accepted ownership reader and
+scoped-link integration. The standalone demos pin 0.9.4 exactly.
 The package installs from PyPI; no Git dependency or sibling checkout is needed.
 
 ## Open your own mesh

@@ -159,7 +159,14 @@ def main() -> None:
         dispatch=(lambda f: f()) if args.offscreen else callbacks.put,
     )
     overlay = gfx.Scene()
-    text = gfx.Text(text="", font_size=15, screen_space=True, anchor="top-left")
+    # An outline keeps captions legible where they overlap bright surfaces.
+    text = gfx.Text(
+        text="",
+        font_size=15,
+        screen_space=True,
+        anchor="top-left",
+        material=gfx.TextMaterial(outline_color="#000", outline_thickness=0.3),
+    )
     overlay.add(text)
     overlay_camera = gfx.ScreenCoordsCamera()
     selected_level: int | None = None
@@ -281,7 +288,7 @@ def main() -> None:
             f"{status.state.upper()} | {f'{reference_label} (not streamed)' if reference_visible else lod_status} | phase {status.phase_chunks_done}/{status.phase_chunks_total}\n"
             f"Mesh cache {status.cache_bytes / (1 << 20):.2f}/{args.memory_mib:g} MiB | active mesh buffers {active_buffer_bytes / (1 << 20):.2f} MiB\n"
             f"Store {io.bytes_returned / (1 << 20):.2f} MiB ({io.metadata_bytes / (1 << 20):.2f} metadata) | {io.requests} store reads\n"
-            f"Cache hits {status.cache_hits} | evictions {status.evictions} | stale reads {status.stale_reads}\n"
+            f"Session totals: cache hits {status.cache_hits} | evictions {status.evictions} | stale reads {status.stale_reads}\n"
             f"Process RSS {usage['rss_bytes'] / (1 << 20):.1f} MiB; sampled peak {usage['sampled_peak_rss_bytes'] / (1 << 20):.1f} MiB | GPU allocations: unavailable\n"
             f"{'V image · ' if image is not None else ''}M surface · {'L auto/coarse/fine · ' if len(source.levels) > 1 else 'Fine only (coarse changed topology) · '}B bounds · R reference{' · S raw' if neuron_sample else ''}\n"
             f"{status.error or (('Phase exceeds budget; current surface retained' if status.displayed_level is not None else 'Visible phase exceeds budget; increase --memory-mib') if status.limited else 'Drag to orbit; scroll to zoom')}\n"

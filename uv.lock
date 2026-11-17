@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 2
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.12'",
@@ -702,7 +702,7 @@ requires-dist = [
     { name = "zarr", marker = "extra == 'ome-zarr'", specifier = ">=3" },
     { name = "zarr", marker = "extra == 'test'", specifier = ">=3" },
     { name = "zarr", marker = "extra == 'zarr'", specifier = ">=3" },
-    { name = "zarr-vectors", marker = "extra == 'mesh'", specifier = "==0.9.4" },
+    { name = "zarr-vectors", marker = "extra == 'mesh'", specifier = ">=0.9.4,<0.10" },
 ]
 provides-extras = ["zarr", "datasets", "ome-zarr", "mesh", "mesh-demo", "biological-demo", "test"]
 
@@ -2064,9 +2064,9 @@ dependencies = [
     { name = "zarr", version = "3.1.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "zarr", version = "3.3.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ec/14/baf3011f1fcab5670bc3d88a484add6c57be81fb5fb47d121d773111ebd5/zarr_vectors-0.9.4.tar.gz", hash = "sha256:db1a5ed73d6fe1388702d42f9afa349bd6be9cfe0aa9f459d8c72ff60a8b851a", size = 5268668 }
+sdist = { url = "https://files.pythonhosted.org/packages/ec/14/baf3011f1fcab5670bc3d88a484add6c57be81fb5fb47d121d773111ebd5/zarr_vectors-0.9.4.tar.gz", hash = "sha256:db1a5ed73d6fe1388702d42f9afa349bd6be9cfe0aa9f459d8c72ff60a8b851a", size = 5268668, upload-time = "2026-11-17T17:12:23.028Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/19/95/f4f08731382404f9b5d10c8ac392d0def92d9700148ae9e510fe44ed330c/zarr_vectors-0.9.4-py3-none-any.whl", hash = "sha256:3fd192c8416b1ed6931dc84ae02120f5afc23b202e73d28d3571725a85f18f03", size = 775225 },
+    { url = "https://files.pythonhosted.org/packages/19/95/f4f08731382404f9b5d10c8ac392d0def92d9700148ae9e510fe44ed330c/zarr_vectors-0.9.4-py3-none-any.whl", hash = "sha256:3fd192c8416b1ed6931dc84ae02120f5afc23b202e73d28d3571725a85f18f03", size = 775225, upload-time = "2026-11-17T17:12:21.443Z" },
 ]
 
 [[package]]

@@ -107,6 +107,8 @@ class MeshStreamSnapshot:
 
 
 _CORNERS = np.array(list(product((0, 1), repeat=3)))
+# Corner points per vectorized block; keeps selection temporaries to a few MiB.
+_SELECTION_BLOCK = 8192
 
 
 def _corners(level: MeshLevel) -> np.ndarray:
@@ -154,6 +156,27 @@ def visible_chunks(level: MeshLevel, view: View) -> tuple[MeshChunk, ...]:
     return tuple(level.chunks[i] for i in indices)
 
 
+def _max_projected_error(
+    points: np.ndarray, error: float, view: View, half_viewport: np.ndarray
+) -> float:
+    """Largest screen displacement of an error cube, in bounded-memory blocks."""
+    offsets = (2 * _CORNERS - 1) * error
+    worst = 0.0
+    for start in range(0, len(points), _SELECTION_BLOCK):
+        block = points[start : start + _SELECTION_BLOCK]
+        a = _homogeneous(block) @ view.world_to_clip.T
+        # Project a cube enclosing the error ball; checking only axes
+        # can underestimate diagonal screen-space displacement.
+        b = _homogeneous(block[:, None, :] + offsets) @ view.world_to_clip.T
+        if np.any(a[:, 3] <= 0) or np.any(b[..., 3] <= 0):
+            return float("inf")
+        delta = b[..., :2] / b[..., 3:4] - a[:, None, :2] / a[:, None, 3:4]
+        worst = max(
+            worst, float(np.max(np.linalg.norm(delta * half_viewport, axis=-1)))
+        )
+    return worst
+
+
 def select_mesh_level(levels: tuple[MeshLevel, ...], view: View, pixels: float) -> int:
     """Choose the coarsest level whose supplied error fits a pixel threshold.
 
@@ -169,15 +192,7 @@ def select_mesh_level(levels: tuple[MeshLevel, ...], view: View, pixels: float) 
         if not len(corners):
             return index
         points = corners.reshape(-1, 3)
-        a = _homogeneous(points) @ view.world_to_clip.T
-        # Project a cube enclosing the error ball; checking only axes
-        # can underestimate diagonal screen-space displacement.
-        displaced = points[:, None, :] + (2 * _CORNERS - 1) * level.error
-        b = _homogeneous(displaced) @ view.world_to_clip.T
-        if np.any(a[:, 3] <= 0) or np.any(b[..., 3] <= 0):
-            continue
-        delta = b[..., :2] / b[..., 3:4] - (a[:, None, :2] / a[:, None, 3:4])
-        if float(np.max(np.linalg.norm(delta * half_viewport, axis=-1))) <= pixels:
+        if _max_projected_error(points, level.error, view, half_viewport) <= pixels:
             return index
     return 0
 
