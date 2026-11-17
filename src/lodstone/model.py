@@ -451,12 +451,29 @@ class TargetDiagnostics:
 
 
 @dataclass(frozen=True, slots=True)
+class PlanSummary:
+    """The size of a plan, without retaining its tiles."""
+
+    target_level: int
+    desired_tiles: int
+    wanted_tiles: int
+
+    @classmethod
+    def of(cls, plan: Plan) -> PlanSummary:
+        return cls(
+            plan.target_level, len(plan.desired or plan.wanted), len(plan.wanted)
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class PerformanceSnapshot:
     """One renderer-neutral stream and target performance sample."""
 
     status: Status
     stream: StreamDiagnostics
     target: TargetDiagnostics = field(default_factory=TargetDiagnostics)
+    view: View | None = field(default=None, compare=False)
+    plan: PlanSummary | None = None
 
 
 def identity_transform(ndim: int) -> npt.NDArray[np.float64]:

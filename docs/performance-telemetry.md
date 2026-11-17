@@ -1,12 +1,15 @@
 # Performance telemetry
 
-`Stream.performance` returns one immutable `PerformanceSnapshot` with three
+`Stream.performance` returns one immutable `PerformanceSnapshot` with these
 parts:
 
 - `status`: generation, progress, residency, and failure state;
 - `stream`: planned, source-read, cache, delivered, staging, phase, and
-  host-dispatch measurements; and
-- `target`: optional renderer-reported upload and presentation measurements.
+  host-dispatch measurements;
+- `target`: optional renderer-reported upload and presentation measurements;
+- `view`: the camera and selection most recently submitted to the stream, not a
+  live reading from the host; and
+- `plan`: a `PlanSummary` of the most recently submitted plan.
 
 The stream measurements have the same meaning in every viewer. `planned_bytes`
 is logical tile demand, `source_bytes` is decoded native-chunk data read from the

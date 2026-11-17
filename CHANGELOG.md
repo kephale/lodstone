@@ -5,6 +5,15 @@ the 0.1 alpha series and may change between prereleases.
 
 ## Unreleased
 
+- Add `fit_on_first_publication` so a dense host can keep its own camera.
+- Ignore camera events only during Lodstone's own publication, so a camera moved
+  from a host callback replans instead of being dropped.
+- Add `clims` for fixed contrast limits on dense targets.
+- Add `orthographic_world_to_clip` for building reproducible camera views.
+- Record the submitted view and a plan summary in performance snapshots and
+  records.
+- Add `vispy_world_to_clip` for hosts that draw through a VisPy view box.
+
 ## 0.1.0a2 - 2026-08-30
 
 - Add a SceneX dense target and camera-aware controller based on the generic

@@ -21,7 +21,7 @@ from ..model import (
     Update,
     View,
 )
-from ..planner import Planner
+from ..planner import Planner, _map_region
 from ..resident import ResidentArrays, ResidentLease
 from ..runtime import Runtime
 from ..source import Source
@@ -37,6 +37,13 @@ __all__ = [
     "DensePublication",
     "DenseTarget",
 ]
+
+
+class _Unchanged:
+    pass
+
+
+_UNCHANGED = _Unchanged()
 
 
 @runtime_checkable
@@ -128,8 +135,10 @@ class DenseTarget:
         *,
         memory_limit: int = 64 * 1024**2,
         block_shape: tuple[int, ...] = (64, 128, 128),
-        focus_depth_weight: float = 0.5,
+        focus_depth_weight: float | None = None,
         focus_depth_target: float | None = None,
+        fit_on_first_publication: bool = True,
+        clims: tuple[float, float] | None = None,
         on_presented: Callable[[DensePublication], None] | None = None,
     ) -> None:
         self.canvas = canvas
@@ -137,23 +146,39 @@ class DenseTarget:
         self.memory_limit = int(memory_limit)
         if self.memory_limit <= 0:
             raise ValueError("memory_limit must be positive")
-        if not np.isfinite(focus_depth_weight) or focus_depth_weight < 0:
+        if focus_depth_weight is not None and (
+            not np.isfinite(focus_depth_weight) or focus_depth_weight < 0
+        ):
             raise ValueError("focus_depth_weight must be finite and nonnegative")
         if focus_depth_target is not None and (
             not np.isfinite(focus_depth_target) or not 0 <= focus_depth_target <= 1
         ):
             raise ValueError("focus_depth_target must be between zero and one")
         self.block_shape = tuple(int(value) for value in block_shape)
-        self.focus_depth_weight = float(focus_depth_weight)
+        self.focus_depth_weight = (
+            None if focus_depth_weight is None else float(focus_depth_weight)
+        )
         self.focus_depth_target = focus_depth_target
+        self.fit_on_first_publication = fit_on_first_publication
+        self.publishing = False
+        if clims is not None:
+            low, high = float(clims[0]), float(clims[1])
+            if not (np.isfinite(low) and np.isfinite(high) and low < high):
+                raise ValueError("clims must be finite with low below high")
+            clims = (low, high)
+        self.clims = clims
         self.resident = ResidentArrays(pyramid, compose=True)
         self.handles: dict[int, DenseHandle] = {}
         self.publications: dict[int, DensePublication] = {}
         self.handle: DenseHandle | None = None
         self._context_level = len(pyramid.levels) - 1
         self._masked_focus: tuple[int, Region] | None = None
+        self._displayed_focus_level: int | None = None
         self.on_presented = on_presented
         self._diagnostics_lock = Lock()
+        self.content_weight = 0.0
+        self.content_black_level = 0.0
+        self._coarse_content = None
         self._submitted_bytes = 0
         self._presentations = 0
 
@@ -185,6 +210,53 @@ class DenseTarget:
             focus_depth_weight=self.focus_depth_weight,
             focus_depth_target=self.focus_depth_target,
         )
+
+    def content_priority(self, view: View):
+        """Snapshot a soft coarse-signal preference; never certify empty space."""
+        snapshot = self._coarse_content
+        weight = self.content_weight
+        black = self.content_black_level
+        if snapshot is None or weight == 0 or snapshot[0] != view.index:
+            return None
+        _, bounds, data, known = snapshot
+        finite = data[np.isfinite(data)]
+        if not finite.size:
+            return None
+        scale = float(np.max(finite)) - black
+        if scale <= 0:
+            return None
+
+        def score(level_index: int, region: Region) -> float:
+            if level_index == self._context_level:
+                return 0.0
+            mapped = _map_region(
+                region,
+                self.pyramid.levels[level_index],
+                self.pyramid.levels[self._context_level],
+            )
+            overlap = mapped.intersection(bounds)
+            if overlap != mapped or mapped.size == 0:
+                return 0.0
+            covered = sum(
+                intersection.size
+                for item in known
+                if (intersection := item.intersection(mapped)) is not None
+            )
+            if covered != mapped.size:
+                return 0.0
+            slices = tuple(
+                slice(a - origin, b - origin)
+                for a, b, origin in zip(
+                    mapped.start, mapped.stop, bounds.start, strict=True
+                )
+            )
+            values = data[slices]
+            if not np.all(np.isfinite(values)):
+                return 0.0
+            signal = max(0.0, min(1.0, (float(np.max(values)) - black) / scale))
+            return weight * signal
+
+        return score
 
     def stage_prepare(self, view: View, plan: Plan) -> DensePreparation:
         self.resident.prepare(plan)
@@ -247,6 +319,28 @@ class DenseTarget:
         phase: int,
         publication: DensePublication,
     ) -> None:
+        self.publishing = True
+        try:
+            published = self._publish(view, plan, publication)
+        finally:
+            self.publishing = False
+        if published and self.on_presented is not None:
+            self.on_presented(publication)
+
+    def _publish(
+        self,
+        view: View,
+        plan: Plan,
+        publication: DensePublication,
+    ) -> bool:
+        if publication.level == self._context_level:
+            window = self.resident.windows[publication.level]
+            self._coarse_content = (
+                view.index,
+                publication.region,
+                publication.data.reshape(publication.region.shape),
+                tuple(window.key_regions.values()),
+            )
         ndim = len(view.displayed_axes)
         self.canvas.set_ndim(ndim)
         wants_level = any(tile.level == publication.level for tile in plan.wanted)
@@ -259,7 +353,7 @@ class DenseTarget:
         ):
             # Stream phases also complete when every context tile was cached.
             # Keep the existing visual instead of uploading the same array.
-            return
+            return False
         handle = self.handles.get(publication.level)
         first_publication = not self.handles
         if handle is None:
@@ -270,28 +364,53 @@ class DenseTarget:
         else:
             handle.set_data(publication.data)
             self._record_submission(publication.data)
-        handle.set_clims(_data_clims(publication.data))
+        handle.set_clims(
+            _data_clims(publication.data) if self.clims is None else self.clims
+        )
         handle.set_world_transform(publication.scales, publication.origins)
         handle.set_visible(True)
         self.publications[publication.level] = publication
-        if publication.level == self._context_level:
-            self._masked_focus = None
+        # A phase replaces the previous focus; keeping multiple non-context
+        # visuals alive makes additive backends count overlapping levels twice.
+        if publication.level != self._context_level:
+            for other_level, other_handle in self.handles.items():
+                if other_level not in (self._context_level, publication.level):
+                    other_handle.set_visible(False)
+        self._masked_focus = None
         self.handle = handle
-        if first_publication:
+        if first_publication and self.fit_on_first_publication:
             self.canvas.set_range()
         if publication.level != self._context_level:
             self._mask_context(publication)
+        else:
+            # Re-uploading context during a zoom must preserve the mask beneath
+            # the focus still displayed while the replacement is loading.
+            for level, focus in self.publications.items():
+                if level == self._displayed_focus_level:
+                    self._mask_context(focus)
+                    break
+        if publication.level != self._context_level:
+            self._displayed_focus_level = publication.level
         self.canvas.refresh()
         self._record_presentation()
-        if self.on_presented is not None:
-            self.on_presented(publication)
+        return True
 
     def discard(self, keys: Collection[TileKey]) -> None:
         self.resident.discard(keys)
 
     def complete(self, view: View, plan: Plan) -> None:
+        self.publishing = True
+        try:
+            self._finish(plan)
+        finally:
+            self.publishing = False
+
+    def _finish(self, plan: Plan) -> None:
         self.resident.complete(plan, retain_levels=True)
         keep = {self._context_level, plan.target_level}
+        self._displayed_focus_level = (
+            None if plan.target_level == self._context_level else plan.target_level
+        )
         for level in tuple(self.handles):
             if level not in keep:
                 self.handles.pop(level).remove()
@@ -449,8 +568,10 @@ class DenseController:
         runtime: Runtime | None = None,
         memory_limit: int = 64 * 1024**2,
         block_shape: tuple[int, ...] = (64, 128, 128),
-        focus_depth_weight: float = 0.5,
+        focus_depth_weight: float | None = None,
         focus_depth_target: float | None = None,
+        fit_on_first_publication: bool = True,
+        clims: tuple[float, float] | None = None,
         on_presented: Callable[[DensePublication], None] | None = None,
         on_targeted: Callable[[Plan], None] | None = None,
         camera_debounce_ms: int = 180,
@@ -472,7 +593,6 @@ class DenseController:
         self._camera_deadline = 0.0
         self._camera_generation = 0
         self._closed = False
-        self._presenting = False
         self.runtime = runtime or Runtime()
         self._owns_runtime = runtime is None
         self.target = self._make_target(
@@ -482,6 +602,8 @@ class DenseController:
             block_shape=block_shape,
             focus_depth_weight=focus_depth_weight,
             focus_depth_target=focus_depth_target,
+            fit_on_first_publication=fit_on_first_publication,
+            clims=clims,
             on_presented=on_presented,
         )
         stream_options.setdefault(
@@ -496,7 +618,7 @@ class DenseController:
         self.stream = Stream(
             source,
             self.target,
-            dispatch=self._dispatch_presentation,
+            dispatch=self._dispatch,
             runtime=self.runtime,
             **stream_options,
         )
@@ -521,8 +643,12 @@ class DenseController:
         return DenseTarget(canvas, pyramid, **options)
 
     def update(self, view: View) -> Plan:
-        self._last_view = view
-        plan = self.stream.update(view)
+        # Explicit controls supersede any older debounced camera request.
+        with self._camera_condition:
+            self._camera_generation += 1
+            self._pending_camera_view = None
+            self._last_view = view
+            plan = self.stream.update(view)
         self._notify_targeted(plan)
         return plan
 
@@ -530,8 +656,10 @@ class DenseController:
         self,
         *,
         memory_limit: int | None = None,
-        focus_depth_weight: float | None = None,
-        focus_depth_target: float | None = None,
+        focus_depth_weight: float | None | _Unchanged = _UNCHANGED,
+        focus_depth_target: float | None | _Unchanged = _UNCHANGED,
+        content_weight: float | None = None,
+        content_black_level: float | None = None,
         lod_bias: float | None = None,
         replan: bool = True,
     ) -> Plan | None:
@@ -540,14 +668,26 @@ class DenseController:
             if memory_limit <= 0:
                 raise ValueError("memory_limit must be positive")
             self.target.memory_limit = int(memory_limit)
-        if focus_depth_weight is not None:
-            if not np.isfinite(focus_depth_weight) or focus_depth_weight < 0:
+        if not isinstance(focus_depth_weight, _Unchanged):
+            if focus_depth_weight is not None and (
+                not np.isfinite(focus_depth_weight) or focus_depth_weight < 0
+            ):
                 raise ValueError("focus_depth_weight must be finite and nonnegative")
-            self.target.focus_depth_weight = float(focus_depth_weight)
-        if focus_depth_target is not None:
-            if not np.isfinite(focus_depth_target) or not 0 <= focus_depth_target <= 1:
+            self.target.focus_depth_weight = focus_depth_weight
+        if not isinstance(focus_depth_target, _Unchanged):
+            if focus_depth_target is not None and (
+                not np.isfinite(focus_depth_target) or not 0 <= focus_depth_target <= 1
+            ):
                 raise ValueError("focus_depth_target must be between zero and one")
-            self.target.focus_depth_target = float(focus_depth_target)
+            self.target.focus_depth_target = focus_depth_target
+        if content_weight is not None:
+            if not np.isfinite(content_weight) or content_weight < 0:
+                raise ValueError("content_weight must be finite and nonnegative")
+            self.target.content_weight = float(content_weight)
+        if content_black_level is not None:
+            if not np.isfinite(content_black_level):
+                raise ValueError("content_black_level must be finite")
+            self.target.content_black_level = float(content_black_level)
         if lod_bias is not None:
             planner = self.stream.planner
             self.stream.planner = Planner(
@@ -561,7 +701,7 @@ class DenseController:
         return None
 
     def _camera_changed(self) -> None:
-        if self._last_view is None or self._presenting:
+        if self._last_view is None or self.target.publishing:
             return
         viewport, world_to_clip = self.canvas.camera_state()
         # Scene-bound changes can alter only the depth/near-far transform when
@@ -608,18 +748,8 @@ class DenseController:
             with self._camera_condition:
                 if self._closed or generation != self._camera_generation:
                     continue
-            self.stream.submit(view, plan)
+                self.stream.submit(view, plan)
             self._notify_targeted(plan)
-
-    def _dispatch_presentation(self, callback: Callable[[], None]) -> None:
-        def guarded() -> None:
-            self._presenting = True
-            try:
-                callback()
-            finally:
-                self._presenting = False
-
-        self._dispatch(guarded)
 
     def _notify_targeted(self, plan: Plan) -> None:
         callback = self._on_targeted

@@ -10,6 +10,7 @@ from lodstone import (
     expand_region_to_chunk_grid,
     isotropic_extent_for_bytes,
     native_chunks_in_region,
+    orthographic_world_to_clip,
 )
 
 
@@ -94,3 +95,43 @@ def test_grid_expansion_preserves_budget_when_native_union_is_too_large() -> Non
         )
         == region
     )
+
+
+def test_orthographic_world_to_clip_maps_frame_to_clip_edges() -> None:
+    matrix = orthographic_world_to_clip(
+        (5, 10, 20),
+        (0, 0, 2),
+        (0, -3, 0),
+        (-4, 0, 0),
+        height=100,
+        viewport=(800, 400),
+        depth=40,
+    )
+
+    def clip(*point: float) -> np.ndarray:
+        return (matrix @ np.array((*point, 1.0)))[:3]
+
+    np.testing.assert_allclose(clip(5, 10, 20), (0, 0, 0), atol=1e-12)
+    np.testing.assert_allclose(clip(5, 10, 120), (1, 0, 0), atol=1e-12)
+    np.testing.assert_allclose(clip(5, -40, 20), (0, 1, 0), atol=1e-12)
+    # Along forward is farther from the viewer, which is clip Z +1.
+    np.testing.assert_allclose(clip(-15, 10, 20), (0, 0, 1), atol=1e-12)
+    np.testing.assert_allclose(clip(25, 10, 20), (0, 0, -1), atol=1e-12)
+
+
+@pytest.mark.parametrize(
+    ("right", "up", "forward", "message"),
+    [
+        ((1, 0, 0), (1, 1, 0), (0, 0, 1), "perpendicular"),
+        ((1, 0, 0), (0, 1, 0), (1, 0, 1), "perpendicular"),
+        ((0, 0, 0), (0, 1, 0), (0, 0, 1), "nonzero"),
+        ((1, 0, 0), (0, 1, 0), (0, 0, float("nan")), "nonzero"),
+    ],
+)
+def test_orthographic_world_to_clip_rejects_a_bad_frame(
+    right, up, forward, message
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        orthographic_world_to_clip(
+            (0, 0, 0), right, up, forward, height=1, viewport=(1, 1), depth=1
+        )

@@ -15,6 +15,19 @@ if TYPE_CHECKING:
     from .stream import Stream
 
 
+def _view_record(sample: PerformanceSnapshot) -> dict[str, Any] | None:
+    view = sample.view
+    if view is None:
+        return None
+    return {
+        "displayed_axes": list(view.displayed_axes),
+        "index": list(view.index),
+        "viewport": list(view.viewport),
+        "world_to_clip": view.world_to_clip.tolist(),
+        "eye": None if view.eye is None else list(view.eye),
+    }
+
+
 class PerformanceRecorder:
     """Record comparable status-boundary samples from one stream.
 
@@ -84,6 +97,8 @@ class PerformanceRecorder:
                     "status": status,
                     "stream": asdict(sample.stream),
                     "target": asdict(sample.target),
+                    "view": _view_record(sample),
+                    "plan": None if sample.plan is None else asdict(sample.plan),
                 }
             )
         return tuple(records)
