@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.13,<3.14"
 # dependencies = [
-#   "lodstone @ git+https://github.com/kephale/lodstone@270c7ac784816209f3a65649231dfffea16c3d89",
+#   "lodstone @ git+https://github.com/kephale/lodstone@294888422e63d5c0015e4f031107ab8927e5eaf8",
 #   "zarr-vectors==0.9.4",
 #   "numpy==2.5.1",
 #   "zarr==3.3.0",
