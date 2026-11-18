@@ -458,7 +458,7 @@ def write_surface_levels(output: Path, all_levels: list) -> Path:
             faces.append(f + count)
             ids.append(np.full(len(v), object_id, dtype=np.int64))
             count += len(v)
-        destination = root if index == 0 else output / "coarse.zarrvectors"
+        destination = root if index == 0 else output / f"coarse-{index}.zarrvectors"
         building.write_mesh(
             destination,
             np.concatenate(vertices).astype(np.float32),

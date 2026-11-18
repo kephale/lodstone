@@ -1,0 +1,26 @@
+[
+  {
+    "level": 2,
+    "chunks": 32,
+    "buffer_bytes": 7752,
+    "cache_bytes": 7116,
+    "reads": 32,
+    "limited": false
+  },
+  {
+    "level": 1,
+    "chunks": 80,
+    "buffer_bytes": 73320,
+    "cache_bytes": 81576,
+    "reads": 112,
+    "limited": false
+  },
+  {
+    "level": 0,
+    "chunks": 101,
+    "buffer_bytes": 570000,
+    "cache_bytes": 715416,
+    "reads": 213,
+    "limited": false
+  }
+]
