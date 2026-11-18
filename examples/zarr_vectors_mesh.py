@@ -84,7 +84,13 @@ def main() -> None:
     parser.add_argument(
         "--offscreen", type=Path, help="render fine/coarse PNGs and metrics here"
     )
+    parser.add_argument("--zoom-loop", action="store_true", help="fly into a repeating spiral rosette")
     arguments = parser.parse_args()
+    if arguments.zoom_loop:
+        from spiral_zoom import run
+
+        run(arguments.offscreen)
+        return
     import pygfx as gfx
 
     temporary = tempfile.TemporaryDirectory(prefix="lodstone-mesh-")

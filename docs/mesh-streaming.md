@@ -102,3 +102,12 @@ same crystal, generated with one, three, and five rounds of growth.
 Add `--offscreen img/crystal` to render all three at the same camera position.
 
 ![Five generations of crystal facets](../img/crystal/level-0.png)
+
+For a continuous descent into a spiral rosette, run
+`uv run --script examples/zarr_vectors_mesh.py --zoom-loop`. The camera follows
+the central bud as it expands fourfold. Each ring shares vertices with its
+neighbors. Scroll to move ahead or back along the descent. The camera rebases
+every fourfold magnification, so the interactive flight can continue indefinitely.
+Use `--offscreen img/crystal` to export one period as an animated WebP.
+
+![Continuous spiral descent](../img/crystal/descent.webp)
