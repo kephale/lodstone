@@ -117,6 +117,6 @@ Press **R** or **Home** to restart, **Space** to pause or resume, or scroll to
 move through the same range manually. Add `--offscreen img/crystal` to export
 the full flight.
 
-![Continuous spiral descent](../img/crystal/descent.webp)
+[Watch the screen recording](../img/crystal/descent.mp4)
 
-![Terraces, domes, diamond facets and branching ridges at four intermediate scales](../img/crystal/fine-tiers.jpg)
+![Six perspective views from the terraces at 1,024× to the crown at 16,777,216×](../img/crystal/fine-tiers.jpg)

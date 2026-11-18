@@ -9,6 +9,17 @@ Alpha software. The core supports Python 3.11–3.14 and requires only NumPy.
 | --- | --- |
 | [![Volume in napari](img/lodstone_napari.png)](docs/viewer-demos.md#napari) | [![Neuron mesh close-up](img/hemibrain-neurons-coarse.png)](docs/biological-mesh.md) |
 
+## Spiral mesh descent
+
+Follow a perspective camera from **1× to 16,777,216×** through twelve fourfold
+steps on one connected surface. The final four tiers reveal scallops, braided
+ribs, flat mesas, and a toothed crown. The scale bar measures model units at
+the central bud.
+
+[![Accelerated preview of the spiral mesh descent](img/crystal/descent.gif)](img/crystal/descent.mp4)
+
+[Watch the full-speed recording](img/crystal/descent.mp4) · [Run the interactive example](docs/mesh-streaming.md#crystal-fractal)
+
 ## Install
 
 ```bash

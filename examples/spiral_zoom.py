@@ -184,8 +184,8 @@ def run(output):
             for frame in range(LAST_TIER * 32 + 1):
                 canvas.request_draw(lambda: paint(frame / 32))
                 frames.append(Image.fromarray(np.asarray(canvas.draw())).convert("RGB"))
-            frames[0].save(output / "descent.webp", save_all=True,
-                           append_images=frames[1:], duration=[94] * (LAST_TIER * 32) + [2000], loop=1, quality=88)
+            frames[0].save(output / "rendered-descent.gif", save_all=True,
+                           append_images=frames[1:], duration=[94] * (LAST_TIER * 32) + [2000], loop=0)
         else:
             def draw():
                 nonlocal phase, running, last_tick
