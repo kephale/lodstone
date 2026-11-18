@@ -106,7 +106,8 @@ Add `--offscreen img/crystal` to render all three at the same camera position.
 For a continuous descent into a spiral rosette, run
 `uv run --script examples/zarr_vectors_mesh.py --zoom-loop`. The camera zooms from 1× to 65,536× into one indexed mesh and stops.
 Eight fourfold steps expose tiers with different petal counts and alternating
-twist. Raised flutes, crosshatching, and beadwork alternate across tiers.
+twist. At finer scales, rippled terraces give way to staggered domes, then diamond
+facets. At the deepest stop the ridges split and rejoin.
 Vertex colors blend from teal through violet and copper, with pale ridges
 under a fixed light. The scale bar measures horizontal distance in the mesh's XYZ units.
 
@@ -115,3 +116,5 @@ move through the same range manually. Add `--offscreen img/crystal` to export
 the full flight.
 
 ![Continuous spiral descent](../img/crystal/descent.webp)
+
+![Terraces, domes, diamond facets and branching ridges in the four finest views](../img/crystal/fine-tiers.jpg)

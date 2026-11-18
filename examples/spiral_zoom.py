@@ -38,6 +38,21 @@ def spiral_surface():
     beads = ribs * (0.5 + 0.5 * np.cos(5 * phase)) ** 2
     grain = np.choose(tier % 3, (flute, cross, beads))
     height += 0.048 * radius * envelope * grain
+    # At high magnification change the relief itself: circular steps, staggered
+    # domes, diamond facets, then a branching ridge. The common envelope
+    # brings each profile back to the shared ring at both ends of its tier.
+    terraces = 0.5 + 0.5 * np.tanh(3 * np.cos(3 * phase + 0.7 * np.cos(4 * theta)))
+    domes = ((0.5 + 0.5 * np.cos(9 * theta + 1.8 * np.cos(2 * phase)))
+             * (0.5 + 0.5 * np.cos(3 * phase))) ** 1.5
+    diamonds = np.maximum(0, 1 - (np.abs(np.sin(5 * theta + phase))
+                                  + np.abs(np.sin(2 * phase))))
+    trunk = 6 * theta - phase
+    split = 1.7 * (1 - np.cos(phase))
+    veins = np.maximum.reduce([np.exp(-3 * (1 - np.cos(trunk + shift)))
+                               for shift in (0, split, -split)])
+    relief = np.select([tier == 5, tier == 6, tier == 7, tier == 8],
+                       [terraces, domes, diamonds, veins])
+    height = np.where(tier >= 5, radius * envelope * (0.08 + 0.57 * relief), height)
     # Blend mineral colors in mesh coordinates. Crest highlights follow the relief.
     palette = np.array([
         [32, 120, 123], [48, 165, 143], [53, 94, 150], [133, 83, 154],
@@ -48,6 +63,7 @@ def spiral_surface():
     blend = (fraction ** 2 * (3 - 2 * fraction))[..., None]
     base = palette[tier] * (1 - blend) + palette[np.minimum(tier + 1, LAST_TIER)] * blend
     highlight = (envelope * (0.35 * petals + 0.4 * grain))[..., None]
+    highlight = np.where((tier >= 5)[..., None], (0.78 * relief * envelope)[..., None], highlight)
     colors = base * (1 - highlight) + np.array([0.98, 0.86, 0.65]) * highlight
     # Offset each bud toward the same fixed point as its parent contracts.
     x = radius * (np.cos(theta) + 0.17 * np.cos(phase))
