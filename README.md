@@ -16,7 +16,12 @@ steps on one connected surface. The final four tiers reveal scallops, braided
 ribs, flat mesas, and a toothed crown. The scale bar measures model units at
 the central bud.
 
+<details>
+<summary>Animated preview</summary>
+
 [![Accelerated preview of the spiral mesh descent](img/crystal/descent.gif)](img/crystal/descent.mp4)
+
+</details>
 
 [Watch the full-speed recording](img/crystal/descent.mp4) · [Run the interactive example](docs/mesh-streaming.md#crystal-fractal)
 
