@@ -30,6 +30,25 @@ def spiral_surface():
     ribs = (0.5 + 0.5 * np.cos(3 * angle)) ** 5
     envelope = np.sin(phase / 2) ** 2
     height = radius * envelope * (0.09 + 0.54 * petals + 0.08 * ribs)
+    # Flutes, crosshatching and beadwork repeat in successive tiers.
+    flute = (0.5 + 0.5 * np.cos(4 * angle)) ** 3
+    cross = (0.5 + 0.5 * np.cos(2 * angle + 4 * phase)) * (
+        0.5 + 0.5 * np.cos(2 * angle - 4 * phase)
+    )
+    beads = ribs * (0.5 + 0.5 * np.cos(5 * phase)) ** 2
+    grain = np.choose(tier % 3, (flute, cross, beads))
+    height += 0.048 * radius * envelope * grain
+    # Blend mineral colors in mesh coordinates. Crest highlights follow the relief.
+    palette = np.array([
+        [32, 120, 123], [48, 165, 143], [53, 94, 150], [133, 83, 154],
+        [178, 94, 78], [211, 150, 67], [95, 148, 112], [48, 123, 148],
+        [107, 90, 161],
+    ]) / 255
+    fraction = np.clip(depth - tier, 0, 1)
+    blend = (fraction ** 2 * (3 - 2 * fraction))[..., None]
+    base = palette[tier] * (1 - blend) + palette[np.minimum(tier + 1, LAST_TIER)] * blend
+    highlight = (envelope * (0.35 * petals + 0.4 * grain))[..., None]
+    colors = base * (1 - highlight) + np.array([0.98, 0.86, 0.65]) * highlight
     # Offset each bud toward the same fixed point as its parent contracts.
     x = radius * (np.cos(theta) + 0.17 * np.cos(phase))
     y = radius * (np.sin(theta) + 0.15 * np.sin(phase))
@@ -42,7 +61,9 @@ def spiral_surface():
     # Close the innermost ring with a fan at the finite tip.
     tip = len(vertices)
     cap = np.column_stack((ring[-1], np.roll(ring[-1], -1), np.full(sectors, tip)))
-    return MeshData(np.vstack((vertices, [0, 0, 0])), np.vstack((faces, cap)))
+    surface = MeshData(np.vstack((vertices, [0, 0, 0])), np.vstack((faces, cap)))
+    colors = np.vstack((colors.reshape(-1, 3), palette[-1])).astype(np.float32)
+    return surface, colors
 
 
 def run(output):
@@ -55,7 +76,15 @@ def run(output):
     renderer = gfx.WgpuRenderer(canvas)
     scene = gfx.Scene()
     target = PyGFXMeshTarget(scene)
-    target.replace(0, [((0, 0), spiral_surface())])
+    surface, colors = spiral_surface()
+    target.replace(0, [((0, 0), surface)])
+    mesh = target.group.children[0]
+    mesh.geometry.colors = gfx.Buffer(colors)
+    mesh.material = gfx.MeshPhongMaterial(color_mode="vertex", shininess=22, side="both")
+    scene.add(gfx.AmbientLight(intensity=0.55))
+    light = gfx.DirectionalLight(intensity=2)
+    light.local.position = (-4, 3, 6)
+    scene.add(light)
     camera = gfx.OrthographicCamera(2, 2)
     camera.local.position = (0, 0, 16)
     overlay = gfx.Scene()
