@@ -1,5 +1,6 @@
 """A spiral relief whose central bud repeats at one quarter of the scale."""
 
+from math import floor, log10
 from time import perf_counter
 
 import numpy as np
@@ -46,6 +47,13 @@ def run(output):
     target.replace(0, [((0, 0), spiral_surface())])
     camera = gfx.OrthographicCamera(2, 2)
     camera.local.position = (0, 0, 16)
+    overlay = gfx.Scene()
+    caption = gfx.Text(
+        text="", font_size=18, screen_space=True, anchor="top-left",
+        material=gfx.TextMaterial(color="white", outline_color="black", outline_thickness=0.35),
+    )
+    overlay.add(caption)
+    overlay_camera = gfx.ScreenCoordsCamera()
     start = perf_counter()
     offset = 0.0
 
@@ -58,7 +66,17 @@ def run(output):
         # The surface repeats exactly under 4x scaling. Rebase while both
         # truncation rings are outside the view or smaller than one pixel.
         camera.zoom = 4 ** (phase % 1)
-        renderer.render(scene, camera)
+        # Keep magnification relative to the opening view across camera rebases.
+        exponent = phase * log10(4)
+        if -2 <= exponent < 4:
+            scale = f"{10 ** exponent:.2f}"
+        else:
+            power = floor(exponent)
+            scale = f"{10 ** (exponent - power):.2f}e{power:+d}"
+        caption.set_text(f"{scale}× zoom")
+        caption.local.position = (16, canvas.get_logical_size()[1] - 16, 0)
+        renderer.render(scene, camera, flush=False)
+        renderer.render(overlay, overlay_camera)
 
     try:
         if output:
@@ -66,7 +84,7 @@ def run(output):
 
             output.mkdir(parents=True, exist_ok=True)
             frames = []
-            for frame in range(96):
+            for frame in range(193):
                 canvas.request_draw(lambda: paint(frame / 96))
                 frames.append(Image.fromarray(np.asarray(canvas.draw())).convert("RGB"))
             frames[0].save(output / "descent.webp", save_all=True,

@@ -108,6 +108,8 @@ For a continuous descent into a spiral rosette, run
 the central bud as it expands fourfold. Each ring shares vertices with its
 neighbors. Scroll to move ahead or back along the descent. The camera rebases
 every fourfold magnification, so the interactive flight can continue indefinitely.
-Use `--offscreen img/crystal` to export one period as an animated WebP.
+Use `--offscreen img/crystal` to export two periods as an animated WebP. The on-screen magnification is relative
+to the opening view. It passes through 4× at the first camera rebase and reaches
+16× before the exported clip replays.
 
 ![Continuous spiral descent](../img/crystal/descent.webp)
