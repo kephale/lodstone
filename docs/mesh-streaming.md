@@ -104,12 +104,12 @@ Add `--offscreen img/crystal` to render all three at the same camera position.
 ![Five generations of crystal facets](../img/crystal/level-0.png)
 
 For a continuous descent into a spiral rosette, run
-`uv run --script examples/zarr_vectors_mesh.py --zoom-loop`. The camera follows
-the central bud as it expands fourfold. Each ring shares vertices with its
-neighbors. Scroll to move ahead or back along the descent. The camera rebases
-every fourfold magnification, so the interactive flight can continue indefinitely.
-Use `--offscreen img/crystal` to export two periods as an animated WebP. The on-screen magnification is relative
-to the opening view. It passes through 4× at the first camera rebase and reaches
-16× before the exported clip replays.
+`uv run --script examples/zarr_vectors_mesh.py --zoom-loop`. The camera zooms from 1× to 65,536× into one indexed mesh and stops.
+Eight fourfold steps expose tiers with different petal counts and alternating
+twist. The scale bar measures horizontal distance in the mesh's XYZ units.
+
+Press **R** or **Home** to restart, **Space** to pause or resume, or scroll to
+move through the same range manually. Add `--offscreen img/crystal` to export
+the full flight.
 
 ![Continuous spiral descent](../img/crystal/descent.webp)
