@@ -4,6 +4,7 @@
 #   "lodstone @ git+https://github.com/kephale/lodstone@cda3207479b50a25a6b78d933d3b262fb73f777e",
 #   "zarr-vectors==0.9.4",
 #   "numpy==2.5.1",
+#   "scipy==1.18.1",
 #   "zarr==3.3.0",
 #   "pygfx==0.17.0",
 #   "rendercanvas==2.7.2",
@@ -70,6 +71,7 @@ def synthetic_store(directory: Path) -> Path:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("store", nargs="?", help="omit to generate a two-level sphere")
+    parser.add_argument("--fractal", action="store_true", help="generate a recursive crystal surface")
     parser.add_argument(
         "--errors",
         type=float,
@@ -87,7 +89,13 @@ def main() -> None:
 
     temporary = tempfile.TemporaryDirectory(prefix="lodstone-mesh-")
     try:
-        store = arguments.store or synthetic_store(Path(temporary.name))
+        if arguments.fractal:
+            from crystal_fractal import crystal_store
+
+            store = crystal_store(Path(temporary.name))
+            arguments.errors = [0.015, 0.12, 0.9]
+        else:
+            store = arguments.store or synthetic_store(Path(temporary.name))
         source = ZarrVectorsMeshSource(
             store, level_errors=arguments.errors, stored_levels=arguments.levels
         )

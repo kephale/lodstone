@@ -90,3 +90,15 @@ oriented triangles exactly once. Its 40 internal edges each have two incident
 faces and its 16 outer edges have one. This checks geometric continuity across
 owner boundaries; it does not establish seamless lighting. The PyGFX target
 still computes normals per chunk, so curved surfaces can show shading seams.
+
+### Crystal fractal
+
+From the checkout, run
+`PYTHONPATH=src uv run --script examples/zarr_vectors_mesh.py --fractal`.
+Drag to orbit and scroll to inspect the terraces and spires. Each triangular
+facet grows a smaller three-sided spire, with a ring of triangles joining its
+base to the surrounding surface. The viewer streams three versions of the
+same crystal, generated with one, three, and five rounds of growth.
+Add `--offscreen img/crystal` to render all three at the same camera position.
+
+![Five generations of crystal facets](../img/crystal/level-0.png)
