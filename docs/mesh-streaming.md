@@ -104,12 +104,14 @@ Add `--offscreen img/crystal` to render all three at the same camera position.
 ![Five generations of crystal facets](../img/crystal/level-0.png)
 
 For a continuous descent into a spiral rosette, run
-`uv run --script examples/zarr_vectors_mesh.py --zoom-loop`. The camera zooms from 1× to 65,536× into one indexed mesh and stops.
-Eight fourfold steps expose tiers with different petal counts and alternating
+`PYTHONPATH=src uv run --script examples/zarr_vectors_mesh.py --zoom-loop`. The camera zooms from 1× to 16,777,216× into one indexed mesh and stops.
+Twelve fourfold steps expose tiers with different petal counts and alternating
 twist. At finer scales, rippled terraces give way to staggered domes, then diamond
-facets. At the deepest stop the ridges split and rejoin.
+facets. After the branching ridges, four deeper tiers reveal scallops, braided ribs,
+flat mesas and a final toothed crown.
 Vertex colors blend from teal through violet and copper, with pale ridges
-under a fixed light. The scale bar measures horizontal distance in the mesh's XYZ units.
+under a fixed light. The perspective camera arcs around the central bud, tilting between 20°
+and 40°. The ruler measures horizontal distance at the depth of that bud.
 
 Press **R** or **Home** to restart, **Space** to pause or resume, or scroll to
 move through the same range manually. Add `--offscreen img/crystal` to export
@@ -117,4 +119,4 @@ the full flight.
 
 ![Continuous spiral descent](../img/crystal/descent.webp)
 
-![Terraces, domes, diamond facets and branching ridges in the four finest views](../img/crystal/fine-tiers.jpg)
+![Terraces, domes, diamond facets and branching ridges at four intermediate scales](../img/crystal/fine-tiers.jpg)

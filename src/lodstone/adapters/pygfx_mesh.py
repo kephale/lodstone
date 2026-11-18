@@ -58,7 +58,8 @@ class PyGFXMeshTarget:
             )
             for corner in range(3):
                 np.add.at(normals, faces[:, corner], face_normals)
-            lengths = np.linalg.norm(normals, axis=1, keepdims=True)
+            # Squaring tiny area-weighted normals in float32 can underflow.
+            lengths = np.linalg.norm(normals.astype(np.float64), axis=1, keepdims=True)
             np.divide(normals, lengths, out=normals, where=lengths > 0)
             geometry = gfx.Geometry(positions=vertices, indices=faces, normals=normals)
             material = gfx.MeshNormalMaterial(side="both")

@@ -84,7 +84,7 @@ def main() -> None:
     parser.add_argument(
         "--offscreen", type=Path, help="render fine/coarse PNGs and metrics here"
     )
-    parser.add_argument("--zoom-loop", action="store_true", help="descend through eight modeled spiral tiers")
+    parser.add_argument("--zoom-loop", action="store_true", help="descend through twelve modeled spiral tiers")
     arguments = parser.parse_args()
     if arguments.zoom_loop:
         from spiral_zoom import run

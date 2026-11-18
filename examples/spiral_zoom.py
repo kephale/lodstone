@@ -1,4 +1,4 @@
-"""A finite descent through eight nested tiers of a connected spiral relief."""
+"""A finite descent through twelve nested tiers of a connected spiral relief."""
 
 from math import floor, log10
 from time import perf_counter
@@ -10,7 +10,7 @@ from lodstone.adapters.pygfx_mesh import PyGFXMeshTarget
 from lodstone.mesh import MeshData
 
 
-LAST_TIER = 8
+LAST_TIER = 12
 SECONDS_PER_TIER = 3.0
 
 
@@ -18,12 +18,12 @@ def spiral_surface():
     # Adjacent bands share a ring of indexed vertices. The radial envelope
     # and its derivative agree at both ends of every logarithmic period.
     sectors = 192
-    depth = np.arange(-64, 321)[:, None] / 32
+    depth = np.arange(-64, 32 * (LAST_TIER + 2) + 1)[:, None] / 32
     theta = 2 * np.pi * np.arange(sectors) / sectors
     radius = 4.0 ** -depth
     phase = 2 * np.pi * depth
     tier = np.clip(np.floor(depth).astype(int), 0, LAST_TIER)
-    lobes = np.array([7, 5, 9, 4, 8, 6, 11, 5, 3])[tier]
+    lobes = np.array([7, 5, 9, 4, 8, 6, 11, 5, 3, 8, 6, 4, 9])[tier]
     twist = np.where(tier % 2 == 0, 1, -1)
     angle = lobes * theta + twist * phase
     petals = (0.5 + 0.5 * np.cos(angle)) ** 3
@@ -50,14 +50,19 @@ def spiral_surface():
     split = 1.7 * (1 - np.cos(phase))
     veins = np.maximum.reduce([np.exp(-3 * (1 - np.cos(trunk + shift)))
                                for shift in (0, split, -split)])
-    relief = np.select([tier == 5, tier == 6, tier == 7, tier == 8],
-                       [terraces, domes, diamonds, veins])
+    scallops = (0.5 + 0.5 * np.cos(2 * phase + 2 * np.cos(8 * theta))) ** 3
+    braid = np.exp(-4 * (np.cos(3 * theta + phase) - 0.55 * np.cos(2 * phase)) ** 2)
+    mesas = 0.5 + 0.5 * np.tanh(6 * (np.cos(4 * theta) + np.cos(2 * phase) - 0.4))
+    crown = (0.5 + 0.5 * np.cos(9 * theta + 0.8 * np.sin(phase))) ** 4
+    relief = np.select([tier == 5, tier == 6, tier == 7, tier == 8,
+                        tier == 9, tier == 10, tier == 11, tier == 12],
+                       [terraces, domes, diamonds, veins, scallops, braid, mesas, crown])
     height = np.where(tier >= 5, radius * envelope * (0.08 + 0.57 * relief), height)
     # Blend mineral colors in mesh coordinates. Crest highlights follow the relief.
     palette = np.array([
         [32, 120, 123], [48, 165, 143], [53, 94, 150], [133, 83, 154],
         [178, 94, 78], [211, 150, 67], [95, 148, 112], [48, 123, 148],
-        [107, 90, 161],
+        [107, 90, 161], [49, 123, 115], [182, 109, 83], [61, 96, 145], [190, 142, 71],
     ]) / 255
     fraction = np.clip(depth - tier, 0, 1)
     blend = (fraction ** 2 * (3 - 2 * fraction))[..., None]
@@ -101,8 +106,8 @@ def run(output):
     light = gfx.DirectionalLight(intensity=2)
     light.local.position = (-4, 3, 6)
     scene.add(light)
-    camera = gfx.OrthographicCamera(2, 2)
-    camera.local.position = (0, 0, 16)
+    camera = gfx.PerspectiveCamera(40, depth_range=(0.1, 15))
+    distance = 1 / np.tan(np.deg2rad(camera.fov / 2))
     overlay = gfx.Scene()
     caption = gfx.Text(
         text="", font_size=18, screen_space=True, anchor="top-left",
@@ -146,17 +151,26 @@ def run(output):
         phase = float(np.clip(phase - event["dy"] * 0.001, 0, LAST_TIER))
 
     def paint(depth):
-        camera.zoom = 4 ** depth
+        magnification = 4 ** depth
+        # Express the scene in units of the current tier. This is equivalent
+        # to moving the eye closer, with stable camera and clip distances.
+        mesh.local.scale = (magnification,) * 3
+        azimuth = 0.38 * depth
+        tilt = np.deg2rad(30 + 10 * np.sin(1.35 * depth))
+        camera.local.position = distance * np.array([
+            np.sin(tilt) * np.cos(azimuth), np.sin(tilt) * np.sin(azimuth), np.cos(tilt)
+        ])
+        camera.look_at((0, 0, 0))
         width, height = canvas.get_logical_size()
         camera.set_view_size(width, height)
-        # The orthographic projection maps two clip units to the canvas width.
-        units_per_pixel = 2 / (camera.projection_matrix[0, 0] * width)
+        # Horizontal ruler at the depth of the central focus point.
+        units_per_pixel = 2 * distance / magnification / (camera.projection_matrix[0, 0] * width)
         desired = min(145, width / 3) * units_per_pixel
         decade = 10 ** floor(log10(desired))
         length = max(n * decade for n in (1, 2, 5) if n * decade <= desired)
         ruler.local.scale_x = outline.local.scale_x = length / units_per_pixel
-        label.set_text(f"{length:.5g} model units")
-        caption.set_text(f"{camera.zoom:,.2f}×   ·   R / Home restart   ·   Space pause")
+        label.set_text(f"{length:.5g} model units at focus")
+        caption.set_text(f"{magnification:,.2f}×   ·   R / Home restart   ·   Space pause")
         caption.local.position = (16, height - 16, 0)
         renderer.render(scene, camera, flush=False)
         renderer.render(overlay, overlay_camera)
@@ -167,11 +181,11 @@ def run(output):
 
             output.mkdir(parents=True, exist_ok=True)
             frames = []
-            for frame in range(257):
+            for frame in range(LAST_TIER * 32 + 1):
                 canvas.request_draw(lambda: paint(frame / 32))
                 frames.append(Image.fromarray(np.asarray(canvas.draw())).convert("RGB"))
             frames[0].save(output / "descent.webp", save_all=True,
-                           append_images=frames[1:], duration=[94] * 256 + [2000], loop=1, quality=88)
+                           append_images=frames[1:], duration=[94] * (LAST_TIER * 32) + [2000], loop=1, quality=88)
         else:
             def draw():
                 nonlocal phase, running, last_tick
