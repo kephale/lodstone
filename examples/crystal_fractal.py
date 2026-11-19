@@ -28,7 +28,10 @@ def crystal(depth):
         inner = len(points)
         points.extend(center + 0.77 * (triangle - center))
         apex = len(points)
-        points.append(center + normal / np.linalg.norm(normal) * np.sqrt(np.linalg.norm(normal)) * 0.58)
+        points.append(
+            center
+            + normal / np.linalg.norm(normal) * np.sqrt(np.linalg.norm(normal)) * 0.58
+        )
         for i, outer in enumerate((a, b, c)):
             j = (i + 1) % 3
             following = (a, b, c)[j]
