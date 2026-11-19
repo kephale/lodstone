@@ -5,7 +5,9 @@ Run with uv run --with matplotlib examples/label_pyramid.py.
 
 from __future__ import annotations
 
+import argparse
 import asyncio
+from pathlib import Path
 
 import numpy as np
 
@@ -89,11 +91,86 @@ def render(ax, image, labels):
 def main() -> None:
     from matplotlib import pyplot as plt
 
+    from lodstone.labels import LabelEditor
+    from lodstone.sources import ZarrLabels
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--labels", type=Path, help="new or existing writable label store"
+    )
+    parser.add_argument(
+        "--radius", type=float, default=4, help="brush radius in world units"
+    )
+    args = parser.parse_args()
+    if not np.isfinite(args.radius) or args.radius <= 0:
+        parser.error("--radius must be positive")
     image, labels = reference_pyramids()
-    _, ax = plt.subplots()
+    editor = None
+    if args.labels is not None:
+        store = (
+            ZarrLabels.open(args.labels)
+            if args.labels.exists()
+            else ZarrLabels.create(args.labels, image.pyramid)
+        )
+        editor = LabelEditor(store)
+        labels = editor
+    fig, ax = plt.subplots()
     ax.set(xlim=(15, 163), ylim=(220, -38), autoscale_on=False)
     ax.callbacks.connect("xlim_changed", lambda _: render(ax, image, labels))
     ax.callbacks.connect("ylim_changed", lambda _: render(ax, image, labels))
+    if editor is not None:
+        points = []
+        button = None
+
+        def press(event):
+            nonlocal button
+            toolbar = fig.canvas.toolbar
+            if (
+                event.inaxes == ax
+                and event.button in (1, 3)
+                and not (toolbar and toolbar.mode)
+            ):
+                points[:] = [(event.ydata, event.xdata)]
+                button = event.button
+
+        def move(event):
+            if button is not None and event.inaxes == ax:
+                points.append((event.ydata, event.xdata))
+
+        def release(event):
+            nonlocal button
+            if button is None:
+                return
+            move(event)
+            editor.stroke(np.asarray(points), args.radius, 1 if button == 1 else 0)
+            button = None
+            render(ax, image, labels)
+
+        def keypress(event):
+            if event.key == "ctrl+s":
+                try:
+                    editor.save()
+                except OSError as error:
+                    ax.set_title(f"Save failed: {error}")
+                else:
+                    ax.set_title("Labels saved")
+            elif event.key == "ctrl+z":
+                editor.undo()
+            elif event.key == "ctrl+y":
+                editor.redo()
+            else:
+                return
+            render(ax, image, labels)
+
+        plt.rcParams["keymap.save"] = []
+        ax.set_title("Left drag paints · right drag erases · Ctrl+S saves")
+        for name, callback in (
+            ("button_press_event", press),
+            ("motion_notify_event", move),
+            ("button_release_event", release),
+            ("key_press_event", keypress),
+        ):
+            fig.canvas.mpl_connect(name, callback)
     render(ax, image, labels)
     plt.show()
 
