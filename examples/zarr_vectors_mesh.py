@@ -71,7 +71,9 @@ def synthetic_store(directory: Path) -> Path:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("store", nargs="?", help="omit to generate a two-level sphere")
-    parser.add_argument("--fractal", action="store_true", help="generate a recursive crystal surface")
+    parser.add_argument(
+        "--fractal", action="store_true", help="generate a recursive crystal surface"
+    )
     parser.add_argument(
         "--errors",
         type=float,
@@ -84,7 +86,11 @@ def main() -> None:
     parser.add_argument(
         "--offscreen", type=Path, help="render fine/coarse PNGs and metrics here"
     )
-    parser.add_argument("--zoom-loop", action="store_true", help="descend through twelve modeled spiral tiers")
+    parser.add_argument(
+        "--zoom-loop",
+        action="store_true",
+        help="descend through twelve modeled spiral tiers",
+    )
     arguments = parser.parse_args()
     if arguments.zoom_loop:
         from spiral_zoom import run
