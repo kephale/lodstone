@@ -221,3 +221,80 @@ def test_failed_constructor_closes_acquired_readers_even_with_retained_traceback
     assert caught.value is not None
     assert created and all(reader._closed for reader in created)
     assert mesh_group._node_cache is None
+
+
+def _returns_within(call, seconds=2.0):
+    done = threading.Event()
+
+    def run():
+        call()
+        done.set()
+
+    threading.Thread(target=run, daemon=True).start()
+    return done.wait(seconds)
+
+
+class BlockingTarget(Target):
+    """Model a slow render-thread rebuild of the first phase."""
+
+    def __init__(self):
+        super().__init__()
+        self.entered, self.release = threading.Event(), threading.Event()
+
+    def replace(self, level, chunks):
+        if not self.phases:
+            self.entered.set()
+            assert self.release.wait(5)
+        super().replace(level, chunks)
+
+
+def render_thread(callback):
+    threading.Thread(target=callback, daemon=True).start()
+
+
+def test_slow_replacement_does_not_block_snapshot_or_update():
+    target = BlockingTarget()
+    stream = MeshStream(Source(), target, dispatch=render_thread)
+    try:
+        stream.update(view())
+        assert target.entered.wait(3)
+        assert _returns_within(stream.snapshot)
+        assert _returns_within(lambda: stream.update(view()))
+        target.release.set()
+        stream.wait()
+        assert target.phases == [0, 0]
+        state = stream.snapshot()
+        assert state.state == "complete" and state.displayed_level == 0
+    finally:
+        target.release.set()
+        stream.close()
+
+
+def test_close_during_replacement_records_no_displayed_phase():
+    target, applied = BlockingTarget(), threading.Event()
+
+    def tracked_render_thread(callback):
+        def run():
+            callback()
+            applied.set()
+
+        threading.Thread(target=run, daemon=True).start()
+
+    runtime = Runtime()
+    stream = MeshStream(
+        Source(), target, runtime=runtime, dispatch=tracked_render_thread
+    )
+    try:
+        stream.update(view())
+        assert target.entered.wait(3)
+        assert _returns_within(stream.close)
+        target.release.set()
+        assert applied.wait(3)
+        assert target.phases == [0]
+        state = stream.snapshot()
+        assert state.state == "closed" and state.displayed_level is None
+        assert not runtime.closed
+    finally:
+        target.release.set()
+        stream.close()
+        runtime.close()
