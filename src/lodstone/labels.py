@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-from itertools import pairwise, product
+from itertools import pairwise
 from threading import Lock
 
 import numpy as np
 
 from .model import Pyramid, Region
-from .sources.labels import ZarrLabels
+from .sources.labels import ZarrLabels, _chunk_keys
 
 ChunkKey = tuple[int, ...]
 Changes = dict[ChunkKey, tuple[np.ndarray, np.ndarray]]
@@ -35,31 +35,33 @@ class LabelEditor:
         with self._lock:
             return len(self._dirty)
 
-    def _keys(self, region: Region):
-        return product(
-            *(
-                range(start // step, (stop - 1) // step + 1)
-                for start, stop, step in zip(
-                    region.start,
-                    region.stop,
-                    self.pyramid.levels[0].chunks,
-                    strict=True,
-                )
-            )
-        )
-
     def _read(self, level: int, region: Region) -> np.ndarray:
         with self._lock:
             result = self.source.read_region(level, region)
-            for key in self._keys(region) if level == 0 else ():
-                if key not in self._dirty:
-                    continue
-                chunk = self.source.chunk_region(key)
-                overlap = chunk.intersection(region)
-                if overlap is None:
-                    continue
-                dest = _relative_slices(overlap, region)
-                result[dest] = self._dirty[key][_relative_slices(overlap, chunk)]
+            if level == 0:
+                for key in _chunk_keys(region, self.pyramid.levels[0].chunks):
+                    if key not in self._dirty:
+                        continue
+                    chunk = self.source.chunk_region(key)
+                    overlap = chunk.intersection(region)
+                    if overlap is not None:
+                        result[_relative_slices(overlap, region)] = self._dirty[key][
+                            _relative_slices(overlap, chunk)
+                        ]
+            else:
+                for key, data in self._dirty.items():
+                    chunk = self.source.chunk_region(key)
+                    affected = self.source.coarse_overlap(level, chunk)
+                    overlap = (
+                        None if affected is None else affected.intersection(region)
+                    )
+                    if overlap is not None:
+                        indices = self.source.finest_indices(level, overlap)
+                        local = tuple(
+                            values - start
+                            for values, start in zip(indices, chunk.start, strict=True)
+                        )
+                        result[_relative_slices(overlap, region)] = data[np.ix_(*local)]
             return result
 
     async def read(self, level: int, region: Region) -> np.ndarray:
@@ -121,7 +123,7 @@ class LabelEditor:
                 bounds = Region(
                     fixed_indices + lo, tuple(i + 1 for i in fixed_indices) + hi
                 )
-                for key in self._keys(bounds):
+                for key in _chunk_keys(bounds, level.chunks):
                     chunk = self.source.chunk_region(key)
                     overlap = chunk.intersection(bounds)
                     assert overlap is not None
