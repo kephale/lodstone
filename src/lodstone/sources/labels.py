@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
+from threading import RLock
 from typing import cast
 
 import numpy as np
@@ -13,6 +15,10 @@ from .array import ArrayPyramidSource
 
 class ZarrLabels(ArrayPyramidSource):
     """A local integer label layer with zero as the background ID."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._storage_lock = RLock()
 
     @classmethod
     def create(
@@ -72,4 +78,12 @@ class ZarrLabels(ArrayPyramidSource):
         region = self.chunk_region(key)
         if data.shape != region.shape or data.dtype != self.pyramid.levels[0].dtype:
             raise ValueError("data must match the shape and dtype of the label chunk")
-        self.arrays[0][region.slices()] = data
+        with self._storage_lock:
+            self.arrays[0][region.slices()] = data
+
+    def read_region(self, level: int, region: Region) -> np.ndarray:
+        with self._storage_lock:
+            return np.asarray(self.arrays[level][region.slices()])
+
+    async def read(self, level: int, region: Region) -> np.ndarray:
+        return await asyncio.to_thread(self.read_region, level, region)
