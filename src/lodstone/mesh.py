@@ -226,6 +226,9 @@ class MeshStream:
         self.runtime = runtime or Runtime()
         self._owns_runtime = runtime is None
         self._lock = threading.RLock()
+        # Orders target replacements without holding ``_lock`` while the target
+        # rebuilds geometry, so snapshots, updates and reads stay responsive.
+        self._publish_lock = threading.Lock()
         self._generation = 0
         self._closed = False
         self._cache: OrderedDict[MeshKey, MeshData] = OrderedDict()
@@ -402,11 +405,23 @@ class MeshStream:
 
         def apply() -> None:
             try:
-                with self._lock:
+                # The generation check and replacement share ``_publish_lock``:
+                # a newer phase cannot reach the target before this one ends,
+                # so the target always shows the latest replacement that ran.
+                with self._publish_lock:
                     if self._current(generation):
+                        # ``_lock`` is not held here: target work (normals, GPU
+                        # buffers) can take long on the GUI thread.
                         self.target.replace(level, staged)
-                        self.displayed_level = level
-                        self.displayed_keys = frozenset(key for key, _data in staged)
+                        with self._lock:
+                            # A newer view may have started meanwhile; this
+                            # geometry is still what the target shows. A closed
+                            # stream reports nothing further.
+                            if not self._closed:
+                                self.displayed_level = level
+                                self.displayed_keys = frozenset(
+                                    key for key, _data in staged
+                                )
                 completed.set_result(None)
             except Exception as error:  # noqa: BLE001 - relay renderer errors to wait()
                 if not completed.done():
@@ -462,7 +477,8 @@ class MeshStream:
 
         Cancellation cannot interrupt a backend's already running worker thread.
         The backend must serialize its own close with those reads, as the Zarr
-        Vectors source does. Closed generations can never publish their result.
+        Vectors source does. A target replacement already in progress may
+        finish, while queued replacements are skipped after close.
         """
         with self._lock:
             if self._closed:
