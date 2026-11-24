@@ -95,3 +95,64 @@ def test_resampling_rejects_rotated_transform() -> None:
             Region((0, 0), (2, 2)),
             _transform((1, 1)),
         )
+
+
+def _reference_nearest_resample(
+    source, source_region, source_transform, region, transform
+):
+    """The direct fancy-index gather the fast path must reproduce."""
+    ndim = source_region.ndim
+    indices = []
+    for axis in range(ndim):
+        coordinates = np.arange(region.start[axis], region.stop[axis], dtype=np.float64)
+        world = (coordinates + 0.5) * transform[axis, axis] + transform[axis, ndim]
+        source_coordinates = np.floor(
+            (world - source_transform[axis, ndim]) / source_transform[axis, axis]
+        ).astype(np.int64)
+        relative = source_coordinates - source_region.start[axis]
+        indices.append(np.clip(relative, 0, source.shape[axis] - 1))
+    return source[np.ix_(*indices)]
+
+
+def _random_axis_aligned(rng, ndim):
+    matrix = np.eye(ndim + 1)
+    matrix[:ndim, :ndim] = np.diag(rng.uniform(0.3, 5.0, ndim))
+    matrix[:ndim, ndim] = rng.uniform(-3.0, 3.0, ndim)
+    return matrix
+
+
+def test_nearest_resample_matches_direct_gather() -> None:
+    rng = np.random.default_rng(0)
+    for _ in range(300):
+        ndim = int(rng.integers(1, 5))
+        shape = tuple(int(n) for n in rng.integers(1, 20, ndim))
+        source = rng.integers(0, 255, shape).astype(np.uint16)
+
+        source_transform, transform_ = (
+            _random_axis_aligned(rng, ndim),
+            _random_axis_aligned(rng, ndim),
+        )
+        source_start = tuple(int(n) for n in rng.integers(0, 5, ndim))
+        source_region = Region(source_start, tuple(np.add(source_start, shape)))
+        start = tuple(int(n) for n in rng.integers(0, 10, ndim))
+        region = Region(start, tuple(np.add(start, rng.integers(1, 30, ndim))))
+
+        args = (source, source_region, source_transform, region, transform_)
+        np.testing.assert_array_equal(
+            nearest_resample_region(*args), _reference_nearest_resample(*args)
+        )
+
+
+def test_nearest_resample_never_aliases_the_source() -> None:
+    source = np.arange(4 * 4 * 4, dtype=np.uint8).reshape(4, 4, 4)
+    identity = np.eye(4)
+    result = nearest_resample_region(
+        source,
+        Region((0, 0, 0), (4, 4, 4)),
+        identity,
+        Region((1, 0, 0), (3, 4, 4)),
+        identity,
+    )
+    np.testing.assert_array_equal(result, source[1:3])
+    result[...] = 0
+    assert source[1:3].any()

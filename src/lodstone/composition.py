@@ -42,7 +42,8 @@ def nearest_resample_region(
     source_offset = source_transform[:ndim, ndim]
     destination_scale = np.diag(destination_transform)[:ndim]
     destination_offset = destination_transform[:ndim, ndim]
-    indices = []
+    window = []
+    repeats = []
     for axis in range(ndim):
         coordinates = np.arange(
             destination_region.start[axis],
@@ -54,8 +55,24 @@ def nearest_resample_region(
             (world - source_offset[axis]) / source_scale[axis]
         ).astype(np.int64)
         relative = source_coordinates - source_region.start[axis]
-        indices.append(np.clip(relative, 0, source.shape[axis] - 1))
-    return source[np.ix_(*indices)]
+        index = np.clip(relative, 0, source.shape[axis] - 1)
+        # Positive scales make each axis's indices non-decreasing, so the
+        # gather is a contiguous source window with every sample repeated
+        # (or skipped, when downsampling) a whole number of times. Slicing
+        # and repeating per axis is several times faster than an
+        # ``np.ix_`` fancy-index gather over the whole destination.
+        low, high = int(index[0]), int(index[-1]) + 1
+        window.append(slice(low, high))
+        repeats.append(np.bincount(index - low, minlength=high - low))
+    result = source[tuple(window)]
+    copied = False
+    for axis, counts in enumerate(repeats):
+        if not np.all(counts == 1):
+            result = np.repeat(result, counts, axis=axis)
+            copied = True
+    # Never hand back a view: callers write the backdrop into resident
+    # buffers, and a view would alias the source level.
+    return result if copied else result.copy()
 
 
 def fill_unloaded_chunks(
