@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import bisect
+import functools
+import itertools
 from dataclasses import dataclass, field
 from enum import StrEnum
 from functools import reduce
@@ -110,26 +112,42 @@ class Level:
 
         if self.chunk_grid is not None:
             return self.chunk_grid[axis]
-        size = self.chunks[axis]
-        count, remainder = divmod(self.shape[axis], size)
-        return (size,) * count + ((remainder,) if remainder else ())
+        return _regular_chunk_sizes(self.shape[axis], self.chunks[axis])
+
+    def _chunk_stops(self, axis: int) -> tuple[int, ...]:
+        if self.chunk_grid is not None:
+            return _cumulative_stops(self.chunk_grid[axis])
+        return _cumulative_stops(
+            _regular_chunk_sizes(self.shape[axis], self.chunks[axis])
+        )
 
     def chunk_bounds(self, axis: int, index: int) -> tuple[int, int]:
         """Return the half-open bounds of one native chunk."""
 
-        sizes = self.chunk_sizes(axis)
-        if not 0 <= index < len(sizes):
+        stops = self._chunk_stops(axis)
+        if not 0 <= index < len(stops):
             raise IndexError("chunk index is outside the native chunk grid")
-        start = sum(sizes[:index])
-        return start, start + sizes[index]
+        return (stops[index - 1] if index else 0), stops[index]
 
     def chunk_index(self, axis: int, coordinate: int) -> int:
         """Return the native chunk containing a data coordinate."""
 
         if not 0 <= coordinate < self.shape[axis]:
             raise IndexError("coordinate is outside the level")
-        boundaries = np.cumsum(self.chunk_sizes(axis)).tolist()
-        return bisect.bisect_right(boundaries, coordinate)
+        return bisect.bisect_right(self._chunk_stops(axis), coordinate)
+
+
+# Planning and streaming look chunks up per tile and axis, tens of thousands
+# of times per 3D plan. Levels are immutable, so derive each axis layout once.
+@functools.lru_cache(maxsize=1024)
+def _regular_chunk_sizes(extent: int, size: int) -> tuple[int, ...]:
+    count, remainder = divmod(extent, size)
+    return (size,) * count + ((remainder,) if remainder else ())
+
+
+@functools.lru_cache(maxsize=1024)
+def _cumulative_stops(sizes: tuple[int, ...]) -> tuple[int, ...]:
+    return tuple(itertools.accumulate(sizes))
 
 
 @dataclass(frozen=True, slots=True)
