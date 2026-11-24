@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.13,<3.14"
 # dependencies = [
-#   "lodstone @ git+https://github.com/kephale/lodstone@cda3207479b50a25a6b78d933d3b262fb73f777e",
+#   "lodstone[mesh-demo]==0.1.0a3",
 #   "zarr-vectors==0.9.4",
 #   "numpy==2.5.1",
 #   "scipy==1.18.1",
