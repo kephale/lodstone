@@ -621,18 +621,26 @@ def _tiles_in_region(
         last = level.chunk_index(axis, region.stop[axis] - 1)
         per_axis.append(range(first, last + 1))
 
-    tiles = []
-    for grid_index in product(*per_axis):
+    grid_indices = list(product(*per_axis))
+    regions = []
+    for grid_index in grid_indices:
         bounds = tuple(
             level.chunk_bounds(axis, index) for axis, index in enumerate(grid_index)
         )
-        tile_region = Region(
-            tuple(start for start, _stop in bounds),
-            tuple(stop for _start, stop in bounds),
+        regions.append(
+            Region(
+                tuple(start for start, _stop in bounds),
+                tuple(stop for _start, stop in bounds),
+            )
         )
+    projections = _project_regions(level.voxel_to_world, regions, view)
+
+    tiles = []
+    for grid_index, tile_region, projection in zip(
+        grid_indices, regions, projections, strict=True
+    ):
         displayed_grid = tuple(grid_index[axis] for axis in view.displayed_axes)
         key = TileKey(level_index, displayed_grid, selection)
-        projection = _project_region(level.voxel_to_world, tile_region, view)
         tiles.append(
             Tile(
                 key,
@@ -902,18 +910,38 @@ class _Projection:
 
 
 def _project_region(matrix: np.ndarray, region: Region, view: View) -> _Projection:
-    bounds = [(region.start[axis], region.stop[axis]) for axis in view.displayed_axes]
-    data_center = np.asarray(
-        [(a + b) / 2.0 for a, b in zip(region.start, region.stop, strict=True)]
-    )
-    points = []
-    for corner in product(*bounds):
-        point = data_center.copy()
-        for local_axis, data_axis in enumerate(view.displayed_axes):
-            point[data_axis] = corner[local_axis]
-        points.append(point)
-    local = _local_world(matrix, np.asarray(points), view.displayed_axes)
-    clip = _clip_points(local, view)
+    return _project_regions(matrix, [region], view)[0]
+
+
+def _project_regions(
+    matrix: np.ndarray, regions: Sequence[Region], view: View
+) -> list[_Projection]:
+    """Project many regions' displayed corners with one matrix product.
+
+    Planning a 3D view projects every chunk of the plan; per-region numpy
+    calls on eight corners made that overhead-bound (about 0.1 ms per chunk,
+    hundreds of milliseconds per plan on the viewer's thread).
+    """
+    if not regions:
+        return []
+    displayed = view.displayed_axes
+    starts = np.asarray([region.start for region in regions], dtype=np.float64)
+    stops = np.asarray([region.stop for region in regions], dtype=np.float64)
+    centers = (starts + stops) / 2.0
+    # Corners in the order itertools.product yields them, per region.
+    corners = list(product((0, 1), repeat=len(displayed)))
+    points = np.repeat(centers[:, None, :], len(corners), axis=1)
+    for corner_index, corner in enumerate(corners):
+        for local_axis, data_axis in enumerate(displayed):
+            source = stops if corner[local_axis] else starts
+            points[:, corner_index, data_axis] = source[:, data_axis]
+    flat = points.reshape(-1, points.shape[-1])
+    local = _local_world(matrix, flat, displayed)
+    clip = _clip_points(local, view).reshape(len(regions), len(corners), 3)
+    return [_projection_from_clip(region_clip, view) for region_clip in clip]
+
+
+def _projection_from_clip(clip: np.ndarray, view: View) -> _Projection:
     finite = np.all(np.isfinite(clip), axis=1)
     if not np.any(finite):
         return _Projection(False, math.inf)
