@@ -8,8 +8,9 @@ from collections import OrderedDict
 from collections.abc import Callable, Sequence
 from concurrent.futures import CancelledError, Future
 from dataclasses import dataclass
+from functools import partial
 from itertools import product
-from typing import Protocol, Self
+from typing import Any, Protocol, Self
 
 import numpy as np
 
@@ -25,6 +26,9 @@ class MeshChunk:
 
     key: tuple[int, ...]
     bounds: tuple[tuple[float, ...], tuple[float, ...]]
+
+
+_CORNERS = np.array(list(product((0, 1), repeat=3)))
 
 
 @dataclass(frozen=True)
@@ -45,6 +49,14 @@ class MeshLevel:
                 raise ValueError("mesh bounds must be three dimensional")
             if not np.all(np.isfinite([lo, hi])) or np.any(hi < lo):
                 raise ValueError("mesh bounds must be finite and ordered")
+        # Selection and culling read every chunk's corners per camera change;
+        # derive them once rather than from the chunk tuple each time.
+        bounds = np.asarray(
+            [chunk.bounds for chunk in self.chunks], dtype=float
+        ).reshape(-1, 2, 3)
+        corners = bounds[:, _CORNERS, np.arange(3)]
+        corners.setflags(write=False)
+        object.__setattr__(self, "_corner_points", corners)
 
 
 @dataclass(frozen=True)
@@ -82,6 +94,16 @@ class MeshSource(Protocol):
 
 
 class MeshTarget(Protocol):
+    """Receives each complete phase on the host's dispatch thread.
+
+    A target may also define ``prepare(level, chunks)`` and
+    ``replace_prepared(level, chunks, prepared)``. The stream then calls
+    ``prepare`` off the host thread (merging fragments, building buffers)
+    and passes its result to ``replace_prepared`` on the host thread
+    instead of calling ``replace``, keeping that thread's share of a
+    publication to the work that must happen there.
+    """
+
     def replace(self, level: int, chunks: Sequence[tuple[MeshKey, MeshData]]) -> None:
         """Replace the complete displayed phase, releasing previous geometry."""
         ...
@@ -106,15 +128,13 @@ class MeshStreamSnapshot:
     error: str | None
 
 
-_CORNERS = np.array(list(product((0, 1), repeat=3)))
 # Corner points per vectorized block; keeps selection temporaries to a few MiB.
 _SELECTION_BLOCK = 8192
 
 
 def _corners(level: MeshLevel) -> np.ndarray:
     """Return the eight XYZ corners of every chunk bound, shape (N, 8, 3)."""
-    bounds = np.asarray([chunk.bounds for chunk in level.chunks], dtype=float)
-    return bounds[:, _CORNERS, np.arange(3)]
+    return level._corner_points  # type: ignore[attr-defined]
 
 
 def _homogeneous(points: np.ndarray) -> np.ndarray:
@@ -127,14 +147,7 @@ def _visible(level: MeshLevel, view: View) -> tuple[list[int], np.ndarray]:
     if not level.chunks:
         return [], np.empty((0, 8, 3))
     corners = _corners(level)
-    clip = _homogeneous(corners) @ view.world_to_clip.T
-    # Reject only when every corner is outside the same clip plane. This
-    # remains conservative for boxes crossing the eye or near plane.
-    xyz, w = clip[..., :3], clip[..., 3:4]
-    outside = np.any(np.all(xyz < -w, axis=1), axis=1) | np.any(
-        np.all(xyz > w, axis=1), axis=1
-    )
-    kept = np.flatnonzero(~outside)
+    kept = np.flatnonzero(_visible_mask(corners, view))
     projected = _homogeneous(corners[kept].mean(axis=1)) @ view.world_to_clip.T
     with np.errstate(divide="ignore", invalid="ignore"):
         priority = np.where(
@@ -150,6 +163,37 @@ def _visible(level: MeshLevel, view: View) -> tuple[list[int], np.ndarray]:
     return indices, corners[indices]
 
 
+def _visible_mask(corners: np.ndarray, view: View) -> np.ndarray:
+    """Chunks not wholly outside one clip plane, for corners (N, 8, 3)."""
+    clip = _homogeneous(corners) @ view.world_to_clip.T
+    # Reject only when every corner is outside the same clip plane. This
+    # remains conservative for boxes crossing the eye or near plane.
+    xyz, w = clip[..., :3], clip[..., 3:4]
+    outside = np.any(np.all(xyz < -w, axis=1), axis=1) | np.any(
+        np.all(xyz > w, axis=1), axis=1
+    )
+    return ~outside
+
+
+def _affine_projected_error(
+    error: float, view: View, half_viewport: np.ndarray
+) -> float | None:
+    """Screen extent of an error ball when it is the same everywhere.
+
+    Without perspective the screen Jacobian is constant, so the ball
+    projects to the same ellipse at every point: no need to evaluate each
+    visible chunk corner. Returns None for perspective views.
+    """
+    matrix = view.world_to_clip
+    if np.any(matrix[3, :3] != 0):
+        return None
+    w = float(matrix[3, 3])
+    if w <= 0:
+        return float("inf")
+    jacobian = matrix[:2, :3] / w * half_viewport[:, None]
+    return float(error * np.linalg.norm(jacobian, 2))
+
+
 def visible_chunks(level: MeshLevel, view: View) -> tuple[MeshChunk, ...]:
     """Conservative homogeneous frustum culling, nearest screen center first."""
     indices, _ = _visible(level, view)
@@ -159,21 +203,34 @@ def visible_chunks(level: MeshLevel, view: View) -> tuple[MeshChunk, ...]:
 def _max_projected_error(
     points: np.ndarray, error: float, view: View, half_viewport: np.ndarray
 ) -> float:
-    """Largest screen displacement of an error cube, in bounded-memory blocks."""
-    offsets = (2 * _CORNERS - 1) * error
+    """Largest screen displacement of an error ball, in bounded-memory blocks.
+
+    The level error bounds geometric deviation in any direction: a ball.
+    Its projection is an ellipse whose semi-major axis is the error times
+    the largest singular value of the projection's screen Jacobian, which
+    is exact for orthographic views and first-order for perspective. An
+    enclosing cube overstates it by up to sqrt(3), selecting a level about
+    four times as dense as the threshold needs.
+    """
+    axes = np.eye(3) * error
     worst = 0.0
     for start in range(0, len(points), _SELECTION_BLOCK):
         block = points[start : start + _SELECTION_BLOCK]
         a = _homogeneous(block) @ view.world_to_clip.T
-        # Project a cube enclosing the error ball; checking only axes
-        # can underestimate diagonal screen-space displacement.
-        b = _homogeneous(block[:, None, :] + offsets) @ view.world_to_clip.T
+        b = _homogeneous(block[:, None, :] + axes) @ view.world_to_clip.T
         if np.any(a[:, 3] <= 0) or np.any(b[..., 3] <= 0):
             return float("inf")
-        delta = b[..., :2] / b[..., 3:4] - a[:, None, :2] / a[:, None, 3:4]
-        worst = max(
-            worst, float(np.max(np.linalg.norm(delta * half_viewport, axis=-1)))
+        # Screen displacement (px) of each axis step of length ``error``:
+        # the columns of the Jacobian scaled by the error, shape (n, 3, 2).
+        delta = (b[..., :2] / b[..., 3:4] - a[:, None, :2] / a[:, None, 3:4]) * (
+            half_viewport
         )
+        gram = np.einsum("nki,nkj->nij", delta, delta)
+        trace_half = (gram[:, 0, 0] + gram[:, 1, 1]) / 2
+        spread = np.sqrt(
+            ((gram[:, 0, 0] - gram[:, 1, 1]) / 2) ** 2 + gram[:, 0, 1] ** 2
+        )
+        worst = max(worst, float(np.sqrt(np.max(trace_half + spread))))
     return worst
 
 
@@ -185,14 +242,23 @@ def select_mesh_level(levels: tuple[MeshLevel, ...], view: View, pixels: float) 
     """
     if not levels or not np.isfinite(pixels) or pixels <= 0:
         raise ValueError("levels and a finite positive pixel threshold are required")
+    if view.displayed_axes != (0, 1, 2):
+        raise ValueError("mesh views must use displayed_axes=(0, 1, 2) in XYZ order")
     half_viewport = np.asarray(view.viewport, dtype=float) / 2
     for index in reversed(range(len(levels))):
         level = levels[index]
-        _, corners = _visible(level, view)
-        if not len(corners):
+        if not level.chunks:
             return index
-        points = corners.reshape(-1, 3)
-        if _max_projected_error(points, level.error, view, half_viewport) <= pixels:
+        corners = _corners(level)
+        visible = _visible_mask(corners, view)
+        if not visible.any():
+            return index
+        projected = _affine_projected_error(level.error, view, half_viewport)
+        if projected is None:
+            projected = _max_projected_error(
+                corners[visible].reshape(-1, 3), level.error, view, half_viewport
+            )
+        if projected <= pixels:
             return index
     return 0
 
@@ -402,6 +468,16 @@ class MeshStream:
         self, generation: int, level: int, staged: list[tuple[MeshKey, MeshData]]
     ) -> None:
         completed: Future = Future()
+        prepare = getattr(self.target, "prepare", None)
+        replace_prepared = getattr(self.target, "replace_prepared", None)
+        replace: Callable[[], object]
+        if callable(prepare) and callable(replace_prepared):
+            prepared: Any = await asyncio.to_thread(prepare, level, staged)
+            if not self._current(generation):
+                return
+            replace = partial(replace_prepared, level, staged, prepared)
+        else:
+            replace = partial(self.target.replace, level, staged)
 
         def apply() -> None:
             try:
@@ -412,7 +488,7 @@ class MeshStream:
                     if self._current(generation):
                         # ``_lock`` is not held here: target work (normals, GPU
                         # buffers) can take long on the GUI thread.
-                        self.target.replace(level, staged)
+                        replace()
                         with self._lock:
                             # A newer view may have started meanwhile; this
                             # geometry is still what the target shows. A closed
