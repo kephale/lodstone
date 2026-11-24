@@ -9,7 +9,7 @@ from collections.abc import Callable, Sequence
 from concurrent.futures import CancelledError, Future
 from dataclasses import dataclass
 from itertools import product
-from typing import Protocol, Self
+from typing import Any, Protocol, Self
 
 import numpy as np
 
@@ -93,6 +93,16 @@ class MeshSource(Protocol):
 
 
 class MeshTarget(Protocol):
+    """Receives each complete phase on the host's dispatch thread.
+
+    A target may also define ``prepare(level, chunks)`` and
+    ``replace_prepared(level, chunks, prepared)``. The stream then calls
+    ``prepare`` off the host thread (merging fragments, building buffers)
+    and passes its result to ``replace_prepared`` on the host thread
+    instead of calling ``replace``, keeping that thread's share of a
+    publication to the work that must happen there.
+    """
+
     def replace(self, level: int, chunks: Sequence[tuple[MeshKey, MeshData]]) -> None:
         """Replace the complete displayed phase, releasing previous geometry."""
         ...
@@ -457,6 +467,14 @@ class MeshStream:
         self, generation: int, level: int, staged: list[tuple[MeshKey, MeshData]]
     ) -> None:
         completed: Future = Future()
+        prepare = getattr(self.target, "prepare", None)
+        replace_prepared = getattr(self.target, "replace_prepared", None)
+        prepared: Any = None
+        two_step = callable(prepare) and callable(replace_prepared)
+        if two_step:
+            prepared = await asyncio.to_thread(prepare, level, staged)
+            if not self._current(generation):
+                return
 
         def apply() -> None:
             try:
@@ -467,7 +485,10 @@ class MeshStream:
                     if self._current(generation):
                         # ``_lock`` is not held here: target work (normals, GPU
                         # buffers) can take long on the GUI thread.
-                        self.target.replace(level, staged)
+                        if two_step:
+                            replace_prepared(level, staged, prepared)
+                        else:
+                            self.target.replace(level, staged)
                         with self._lock:
                             # A newer view may have started meanwhile; this
                             # geometry is still what the target shows. A closed
