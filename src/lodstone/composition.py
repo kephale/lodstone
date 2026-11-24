@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Collection
 from itertools import product
 
@@ -103,25 +104,44 @@ def fill_unloaded_chunks(
         return ()
 
     boundaries = [np.concatenate(([0], np.cumsum(axis))) for axis in chunk_grid]
-    loaded_regions = tuple(loaded)
-    loaded_set = set(loaded_regions)
-    per_axis = []
-    for axis, bounds in enumerate(boundaries):
-        starts, stops = bounds[:-1], bounds[1:]
-        first = int(np.searchsorted(stops, overlap.start[axis], side="right"))
-        last = int(np.searchsorted(starts, overlap.stop[axis], side="left"))
-        per_axis.append(
-            tuple((int(starts[i]), int(stops[i])) for i in range(first, last))
-        )
+    loaded_set = set(loaded)
+
+    def chunk_range(axis: int, start: int, stop: int) -> range:
+        starts, stops = boundaries[axis][:-1], boundaries[axis][1:]
+        first = int(np.searchsorted(stops, start, side="right"))
+        last = int(np.searchsorted(starts, stop, side="left"))
+        return range(first, last)
+
+    # Index loaded regions by the native chunks they touch, so each chunk
+    # tests only its own neighbours. Scanning every loaded region for every
+    # chunk is quadratic: a 3D tile with hundreds of loaded chunks took
+    # seconds, all of it under the caller's lock on the resident level.
+    touching: dict[tuple[int, ...], list[Region]] = defaultdict(list)
+    for region in loaded_set:
+        if region.ndim != ndim:
+            continue
+        for index in product(
+            *(
+                chunk_range(axis, region.start[axis], region.stop[axis])
+                for axis in range(ndim)
+            )
+        ):
+            touching[index].append(region)
 
     filled = []
-    for bounds in product(*per_axis):
-        chunk = Region(
-            tuple(start for start, _stop in bounds),
-            tuple(stop for _start, stop in bounds),
+    for index in product(
+        *(
+            chunk_range(axis, overlap.start[axis], overlap.stop[axis])
+            for axis in range(ndim)
         )
+    ):
+        chunk = Region(
+            tuple(int(boundaries[axis][i]) for axis, i in enumerate(index)),
+            tuple(int(boundaries[axis][i + 1]) for axis, i in enumerate(index)),
+        )
+        nearby = touching.get(index, ())
         if chunk in loaded_set or any(
-            region.intersection(chunk) == chunk for region in loaded_regions
+            region.intersection(chunk) == chunk for region in nearby
         ):
             continue
         write = chunk.intersection(overlap)
@@ -133,7 +153,7 @@ def fill_unloaded_chunks(
         # cover one chunk jointly or partially. Fill only uncovered voxels so
         # recomposing a reused window never overwrites loaded detail.
         covered = np.zeros(write.shape, dtype=bool)
-        for region in loaded_regions:
+        for region in nearby:
             part = region.intersection(write)
             if part is not None:
                 covered[_relative_slices(part, write)] = True

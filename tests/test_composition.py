@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from itertools import product
+
 import numpy as np
 import pytest
 
@@ -156,3 +158,82 @@ def test_nearest_resample_never_aliases_the_source() -> None:
     np.testing.assert_array_equal(result, source[1:3])
     result[...] = 0
     assert source[1:3].any()
+
+
+def _reference_fill(
+    destination, destination_region, content, content_region, grid, loaded
+):
+    """Per-voxel statement of what fill_unloaded_chunks must write."""
+    ndim = destination_region.ndim
+    shape = tuple(sum(axis) for axis in grid)
+    covered = np.zeros(shape, dtype=bool)
+    for region in loaded:
+        covered[region.slices()] = True
+    overlap = destination_region.intersection(content_region)
+    filled = set()
+    if overlap is None:
+        return filled
+    bounds = [np.concatenate(([0], np.cumsum(axis))) for axis in grid]
+    for index in product(*(range(len(axis)) for axis in grid)):
+        chunk = Region(
+            tuple(int(bounds[a][i]) for a, i in enumerate(index)),
+            tuple(int(bounds[a][i + 1]) for a, i in enumerate(index)),
+        )
+        if any(region.intersection(chunk) == chunk for region in loaded):
+            continue
+        write = chunk.intersection(overlap)
+        if write is None or covered[write.slices()].all():
+            continue
+        mask = ~covered[write.slices()]
+        target = tuple(
+            slice(
+                write.start[a] - destination_region.start[a],
+                write.stop[a] - destination_region.start[a],
+            )
+            for a in range(ndim)
+        )
+        source = tuple(
+            slice(
+                write.start[a] - content_region.start[a],
+                write.stop[a] - content_region.start[a],
+            )
+            for a in range(ndim)
+        )
+        destination[target][mask] = content[source][mask]
+        filled.add(chunk)
+    return filled
+
+
+def test_fill_unloaded_chunks_matches_per_voxel_reference() -> None:
+    rng = np.random.default_rng(1)
+
+    def random_region(shape):
+        start = tuple(int(rng.integers(0, size)) for size in shape)
+        stop = tuple(
+            int(rng.integers(low + 1, size + 1))
+            for low, size in zip(start, shape, strict=True)
+        )
+        return Region(start, stop)
+
+    for _ in range(300):
+        ndim = int(rng.integers(1, 4))
+        grid = [
+            tuple(int(n) for n in rng.integers(1, 6, int(rng.integers(1, 6))))
+            for _ in range(ndim)
+        ]
+        shape = tuple(sum(axis) for axis in grid)
+        destination_region = random_region(shape)
+        content_region = random_region(shape)
+        loaded = {random_region(shape) for _ in range(int(rng.integers(0, 12)))}
+        content = rng.integers(1, 255, content_region.shape).astype(np.uint8)
+        actual = np.zeros(destination_region.shape, np.uint8)
+        expected = actual.copy()
+
+        filled = fill_unloaded_chunks(
+            actual, destination_region, content, content_region, grid, loaded
+        )
+        reference = _reference_fill(
+            expected, destination_region, content, content_region, grid, loaded
+        )
+        np.testing.assert_array_equal(actual, expected)
+        assert set(filled) == reference
