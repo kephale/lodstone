@@ -5,6 +5,15 @@ the 0.1 alpha series and may change between prereleases.
 
 ## Unreleased
 
+### Performance
+
+- Resample coarse backdrops by slicing and repeating instead of a fancy-index
+  gather (about 8x faster for a 3D tile).
+- Fill unloaded chunks by testing each chunk only against the loaded regions
+  it touches; the fill was quadratic and ran under the resident level's lock.
+- Project all of a plan region's tiles with one matrix product.
+- Cache each level axis's chunk boundaries for chunk lookups.
+
 ## 0.1.0a3 - 2026-11-24
 
 ### Meshes
