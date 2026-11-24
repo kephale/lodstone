@@ -8,6 +8,7 @@ from collections import OrderedDict
 from collections.abc import Callable, Sequence
 from concurrent.futures import CancelledError, Future
 from dataclasses import dataclass
+from functools import partial
 from itertools import product
 from typing import Any, Protocol, Self
 
@@ -469,12 +470,14 @@ class MeshStream:
         completed: Future = Future()
         prepare = getattr(self.target, "prepare", None)
         replace_prepared = getattr(self.target, "replace_prepared", None)
-        prepared: Any = None
-        two_step = callable(prepare) and callable(replace_prepared)
-        if two_step:
-            prepared = await asyncio.to_thread(prepare, level, staged)
+        replace: Callable[[], object]
+        if callable(prepare) and callable(replace_prepared):
+            prepared: Any = await asyncio.to_thread(prepare, level, staged)
             if not self._current(generation):
                 return
+            replace = partial(replace_prepared, level, staged, prepared)
+        else:
+            replace = partial(self.target.replace, level, staged)
 
         def apply() -> None:
             try:
@@ -485,10 +488,7 @@ class MeshStream:
                     if self._current(generation):
                         # ``_lock`` is not held here: target work (normals, GPU
                         # buffers) can take long on the GUI thread.
-                        if two_step:
-                            replace_prepared(level, staged, prepared)
-                        else:
-                            self.target.replace(level, staged)
+                        replace()
                         with self._lock:
                             # A newer view may have started meanwhile; this
                             # geometry is still what the target shows. A closed
