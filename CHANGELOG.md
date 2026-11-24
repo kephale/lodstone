@@ -5,6 +5,8 @@ the 0.1 alpha series and may change between prereleases.
 
 ## Unreleased
 
+## 0.1.0a5 - 2026-11-24
+
 ### Datasets
 
 - Compute the generated Mandelbulb's power without trigonometry, about 5x
