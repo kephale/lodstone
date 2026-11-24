@@ -8,6 +8,7 @@ from lodstone.datasets.generative import (
     MandelbrotStore,
     MandelbulbStore,
     mandelbrot,
+    mandelbulb,
     tile_bounds,
 )
 
@@ -89,6 +90,50 @@ def test_mandelbulb_store():
     assert arr.shape == (16, 16, 16)
     data = arr[:]
     assert data.max() > 0
+
+
+def _trig_mandelbulb(cx, cy, cz, maxiter, order):
+    x = y = z = 0.0
+    n = 0
+    for _ in range(maxiter):
+        r = np.sqrt(x * x + y * y + z * z)
+        theta = np.arctan2(z, np.sqrt(x * x + y * y))
+        phi = np.arctan2(y, x)
+        new_r = r**order
+        x = new_r * np.cos(order * phi) * np.cos(order * theta) + cx
+        y = new_r * np.sin(order * phi) * np.cos(order * theta) + cy
+        z = new_r * np.sin(order * theta) + cz
+        if x * x + y * y + z * z > 4.0:
+            break
+        n += 1
+    return n
+
+
+@pytest.mark.parametrize("order", [2, 3, 8])
+def test_mandelbulb_matches_trigonometric_form(order):
+    grid, maxiter = 10, 32
+    out = np.zeros(grid**3, dtype=np.uint8)
+    mandelbulb(out, -1.2, -1.1, -1.0, 1.2, 1.1, 1.0, grid, maxiter, order)
+    step = np.array([2.4, 2.2, 2.0]) / grid
+    expected = np.array(
+        [
+            _trig_mandelbulb(
+                -1.2 + col * step[0],
+                -1.1 + row * step[1],
+                -1.0 + plane * step[2],
+                maxiter,
+                order,
+            )
+            for plane in range(grid)
+            for row in range(grid)
+            for col in range(grid)
+        ]
+    )
+    # Rounding differs from the trigonometric form, and orbits near the
+    # boundary are chaotic, so a few points may escape at another
+    # iteration. The rest must agree exactly.
+    assert np.mean(out != expected) < 0.01
+    assert len(np.unique(expected)) > 3
 
 
 def test_tile_bounds():

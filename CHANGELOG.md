@@ -5,6 +5,12 @@ the 0.1 alpha series and may change between prereleases.
 
 ## Unreleased
 
+### Datasets
+
+- Compute the generated Mandelbulb's power without trigonometry, about 5x
+  faster per chunk with numba. Escape counts match the trigonometric form
+  except at rare chaotic boundary points. `order` must be a positive integer.
+
 ## 0.1.0a4 - 2026-11-24
 
 ### Meshes
