@@ -5,6 +5,18 @@ the 0.1 alpha series and may change between prereleases.
 
 ## Unreleased
 
+### Meshes
+
+- Select mesh LOD by the projected error ball rather than its bounding cube,
+  which overstated screen error by up to sqrt(3) and loaded one level denser
+  than the pixel threshold needs.
+- Select levels without sorting and projecting every visible chunk corner:
+  one vectorized visibility test, and a constant screen Jacobian for
+  orthographic views (about 9x faster for 20k chunks).
+- Mesh targets may define `prepare` and `replace_prepared`; the stream then
+  merges and builds buffers off the host thread and leaves the host only the
+  replacement.
+
 ### Performance
 
 - Resample coarse backdrops by slicing and repeating instead of a fancy-index
