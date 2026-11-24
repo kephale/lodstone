@@ -27,6 +27,9 @@ class MeshChunk:
     bounds: tuple[tuple[float, ...], tuple[float, ...]]
 
 
+_CORNERS = np.array(list(product((0, 1), repeat=3)))
+
+
 @dataclass(frozen=True)
 class MeshLevel:
     """One surface resolution; error is an explicit world-space estimate."""
@@ -45,6 +48,14 @@ class MeshLevel:
                 raise ValueError("mesh bounds must be three dimensional")
             if not np.all(np.isfinite([lo, hi])) or np.any(hi < lo):
                 raise ValueError("mesh bounds must be finite and ordered")
+        # Selection and culling read every chunk's corners per camera change;
+        # derive them once rather than from the chunk tuple each time.
+        bounds = np.asarray(
+            [chunk.bounds for chunk in self.chunks], dtype=float
+        ).reshape(-1, 2, 3)
+        corners = bounds[:, _CORNERS, np.arange(3)]
+        corners.setflags(write=False)
+        object.__setattr__(self, "_corner_points", corners)
 
 
 @dataclass(frozen=True)
@@ -106,15 +117,13 @@ class MeshStreamSnapshot:
     error: str | None
 
 
-_CORNERS = np.array(list(product((0, 1), repeat=3)))
 # Corner points per vectorized block; keeps selection temporaries to a few MiB.
 _SELECTION_BLOCK = 8192
 
 
 def _corners(level: MeshLevel) -> np.ndarray:
     """Return the eight XYZ corners of every chunk bound, shape (N, 8, 3)."""
-    bounds = np.asarray([chunk.bounds for chunk in level.chunks], dtype=float)
-    return bounds[:, _CORNERS, np.arange(3)]
+    return level._corner_points  # type: ignore[attr-defined]
 
 
 def _homogeneous(points: np.ndarray) -> np.ndarray:
@@ -127,14 +136,7 @@ def _visible(level: MeshLevel, view: View) -> tuple[list[int], np.ndarray]:
     if not level.chunks:
         return [], np.empty((0, 8, 3))
     corners = _corners(level)
-    clip = _homogeneous(corners) @ view.world_to_clip.T
-    # Reject only when every corner is outside the same clip plane. This
-    # remains conservative for boxes crossing the eye or near plane.
-    xyz, w = clip[..., :3], clip[..., 3:4]
-    outside = np.any(np.all(xyz < -w, axis=1), axis=1) | np.any(
-        np.all(xyz > w, axis=1), axis=1
-    )
-    kept = np.flatnonzero(~outside)
+    kept = np.flatnonzero(_visible_mask(corners, view))
     projected = _homogeneous(corners[kept].mean(axis=1)) @ view.world_to_clip.T
     with np.errstate(divide="ignore", invalid="ignore"):
         priority = np.where(
@@ -148,6 +150,37 @@ def _visible(level: MeshLevel, view: View) -> tuple[list[int], np.ndarray]:
     )
     indices = [int(kept[i]) for i in order]
     return indices, corners[indices]
+
+
+def _visible_mask(corners: np.ndarray, view: View) -> np.ndarray:
+    """Chunks not wholly outside one clip plane, for corners (N, 8, 3)."""
+    clip = _homogeneous(corners) @ view.world_to_clip.T
+    # Reject only when every corner is outside the same clip plane. This
+    # remains conservative for boxes crossing the eye or near plane.
+    xyz, w = clip[..., :3], clip[..., 3:4]
+    outside = np.any(np.all(xyz < -w, axis=1), axis=1) | np.any(
+        np.all(xyz > w, axis=1), axis=1
+    )
+    return ~outside
+
+
+def _affine_projected_error(
+    error: float, view: View, half_viewport: np.ndarray
+) -> float | None:
+    """Screen extent of an error ball when it is the same everywhere.
+
+    Without perspective the screen Jacobian is constant, so the ball
+    projects to the same ellipse at every point: no need to evaluate each
+    visible chunk corner. Returns None for perspective views.
+    """
+    matrix = view.world_to_clip
+    if np.any(matrix[3, :3] != 0):
+        return None
+    w = float(matrix[3, 3])
+    if w <= 0:
+        return float("inf")
+    jacobian = matrix[:2, :3] / w * half_viewport[:, None]
+    return float(error * np.linalg.norm(jacobian, 2))
 
 
 def visible_chunks(level: MeshLevel, view: View) -> tuple[MeshChunk, ...]:
@@ -198,14 +231,23 @@ def select_mesh_level(levels: tuple[MeshLevel, ...], view: View, pixels: float) 
     """
     if not levels or not np.isfinite(pixels) or pixels <= 0:
         raise ValueError("levels and a finite positive pixel threshold are required")
+    if view.displayed_axes != (0, 1, 2):
+        raise ValueError("mesh views must use displayed_axes=(0, 1, 2) in XYZ order")
     half_viewport = np.asarray(view.viewport, dtype=float) / 2
     for index in reversed(range(len(levels))):
         level = levels[index]
-        _, corners = _visible(level, view)
-        if not len(corners):
+        if not level.chunks:
             return index
-        points = corners.reshape(-1, 3)
-        if _max_projected_error(points, level.error, view, half_viewport) <= pixels:
+        corners = _corners(level)
+        visible = _visible_mask(corners, view)
+        if not visible.any():
+            return index
+        projected = _affine_projected_error(level.error, view, half_viewport)
+        if projected is None:
+            projected = _max_projected_error(
+                corners[visible].reshape(-1, 3), level.error, view, half_viewport
+            )
+        if projected <= pixels:
             return index
     return 0
 
