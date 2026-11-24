@@ -5,6 +5,8 @@ the 0.1 alpha series and may change between prereleases.
 
 ## Unreleased
 
+## 0.1.0a4 - 2026-11-24
+
 ### Meshes
 
 - Select mesh LOD by the projected error ball rather than its bounding cube,
