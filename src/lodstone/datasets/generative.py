@@ -131,7 +131,7 @@ def mandelbulb(
     """Fill ``out`` with Mandelbulb escape iteration counts.
 
     ``out`` is a flat array of length ``grid_size ** 3`` filled in
-    (z, y, x) C order.
+    (z, y, x) C order. ``order`` must be a positive integer.
     """
     step_x = (to_x - from_x) / grid_size
     step_y = (to_y - from_y) / grid_size
@@ -148,18 +148,50 @@ def mandelbulb(
                 z = 0.0
                 n = 0
                 for _ in range(maxiter):
-                    # hypercomplex exponentiation
-                    r = np.sqrt(x * x + y * y + z * z)
+                    # Hypercomplex power without trigonometry. With
+                    # phi = atan2(y, x) and theta = atan2(z, r_xy), the
+                    # power needs r**order, cos/sin(order * theta) and
+                    # cos/sin(order * phi). (r_xy + i z)**order carries the
+                    # first two and the unit (x + i y) / r_xy raised to
+                    # order carries the third, both by repeated squaring.
                     r_xy = np.sqrt(x * x + y * y)
-                    theta = np.arctan2(z, r_xy)
-                    phi = np.arctan2(y, x)
-                    new_r = r**order
-                    x = new_r * np.cos(order * phi) * np.cos(order * theta)
-                    y = new_r * np.sin(order * phi) * np.cos(order * theta)
-                    z = new_r * np.sin(order * theta)
-                    x += cx
-                    y += cy
-                    z += cz
+                    if r_xy > 0.0:
+                        unit_re = x / r_xy
+                        unit_im = y / r_xy
+                    else:
+                        # atan2(0, 0) is 0
+                        unit_re = 1.0
+                        unit_im = 0.0
+                    base_re = r_xy
+                    base_im = z
+                    elev_re = 1.0
+                    elev_im = 0.0
+                    azim_re = 1.0
+                    azim_im = 0.0
+                    exponent = order
+                    while exponent > 0:
+                        if exponent & 1:
+                            elev_re, elev_im = (
+                                elev_re * base_re - elev_im * base_im,
+                                elev_re * base_im + elev_im * base_re,
+                            )
+                            azim_re, azim_im = (
+                                azim_re * unit_re - azim_im * unit_im,
+                                azim_re * unit_im + azim_im * unit_re,
+                            )
+                        exponent >>= 1
+                        if exponent:
+                            base_re, base_im = (
+                                base_re * base_re - base_im * base_im,
+                                2.0 * base_re * base_im,
+                            )
+                            unit_re, unit_im = (
+                                unit_re * unit_re - unit_im * unit_im,
+                                2.0 * unit_re * unit_im,
+                            )
+                    x = elev_re * azim_re + cx
+                    y = elev_re * azim_im + cy
+                    z = elev_im + cz
                     if x * x + y * y + z * z > 4.0:
                         break
                     n += 1
