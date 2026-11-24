@@ -28,12 +28,13 @@ the central bud.
 ## Install
 
 ```bash
-pip install lodstone==0.1.0a2
-pip install "lodstone[ome-zarr]==0.1.0a2"  # remote image data
+pip install lodstone==0.1.0a3
+pip install "lodstone[ome-zarr]==0.1.0a3"  # remote image data
+pip install "lodstone[mesh]==0.1.0a3"      # Zarr Vectors meshes
 ```
 
-Mesh support is available from the development source. Try the neuron viewer
-with [uv](https://docs.astral.sh/uv/getting-started/installation/) and Git:
+Try the neuron viewer with
+[uv](https://docs.astral.sh/uv/getting-started/installation/):
 
 ```bash
 uv run https://raw.githubusercontent.com/kephale/lodstone/refs/heads/main/examples/biological_mesh.py

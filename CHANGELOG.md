@@ -5,6 +5,38 @@ the 0.1 alpha series and may change between prereleases.
 
 ## Unreleased
 
+## 0.1.0a3 - 2026-11-24
+
+### Meshes
+
+- Add renderer-neutral streaming for Zarr Vectors triangle meshes: reads use
+  stored face ownership so triangles crossing chunk boundaries stay complete,
+  with conservative frustum culling, uniform level-of-detail switching, bounded
+  decoded caches and atomic geometry replacement.
+- Publish mesh support as the `mesh` extra, built on the released
+  `zarr-vectors>=0.9.4,<0.10`.
+- Keep slow geometry replacement outside the mesh stream state lock, so
+  snapshots, camera changes and close no longer wait on the host (#24).
+- Add PyGFX mesh demos, including biological surfaces and two procedural
+  examples: a connected recursive crystal and a continuous spiral zoom.
+
+### Dense images
+
+- Refine dense regions front to back and prefer tissue over background. Fine
+  detail no longer reverts to coarse detail after zooming, rotating or
+  changing priority settings.
+- Add `fit_on_first_publication` so hosts that already placed their camera can
+  skip the initial range fit.
+- Scope the camera guard to Lodstone's own publication, so camera changes made
+  from presentation or status callbacks replan instead of being dropped.
+- Add fixed contrast limits (`clims`) to dense targets and controllers.
+
+### Cameras and telemetry
+
+- Add `orthographic_world_to_clip` and a shared `vispy_world_to_clip` camera
+  readback for hosts that draw through a VisPy view box.
+- Record the submitted view and a compact plan summary in performance samples.
+
 - Add experimental `MeshStream` for view-dependent triangle-mesh LOD with
   frustum culling, bounded decoded caches and atomic level replacement.
 - Add `ZarrVectorsMeshSource` (optional `mesh` extra) and a PyGFX mesh target.
