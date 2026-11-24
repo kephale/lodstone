@@ -159,21 +159,34 @@ def visible_chunks(level: MeshLevel, view: View) -> tuple[MeshChunk, ...]:
 def _max_projected_error(
     points: np.ndarray, error: float, view: View, half_viewport: np.ndarray
 ) -> float:
-    """Largest screen displacement of an error cube, in bounded-memory blocks."""
-    offsets = (2 * _CORNERS - 1) * error
+    """Largest screen displacement of an error ball, in bounded-memory blocks.
+
+    The level error bounds geometric deviation in any direction: a ball.
+    Its projection is an ellipse whose semi-major axis is the error times
+    the largest singular value of the projection's screen Jacobian, which
+    is exact for orthographic views and first-order for perspective. An
+    enclosing cube overstates it by up to sqrt(3), selecting a level about
+    four times as dense as the threshold needs.
+    """
+    axes = np.eye(3) * error
     worst = 0.0
     for start in range(0, len(points), _SELECTION_BLOCK):
         block = points[start : start + _SELECTION_BLOCK]
         a = _homogeneous(block) @ view.world_to_clip.T
-        # Project a cube enclosing the error ball; checking only axes
-        # can underestimate diagonal screen-space displacement.
-        b = _homogeneous(block[:, None, :] + offsets) @ view.world_to_clip.T
+        b = _homogeneous(block[:, None, :] + axes) @ view.world_to_clip.T
         if np.any(a[:, 3] <= 0) or np.any(b[..., 3] <= 0):
             return float("inf")
-        delta = b[..., :2] / b[..., 3:4] - a[:, None, :2] / a[:, None, 3:4]
-        worst = max(
-            worst, float(np.max(np.linalg.norm(delta * half_viewport, axis=-1)))
+        # Screen displacement (px) of each axis step of length ``error``:
+        # the columns of the Jacobian scaled by the error, shape (n, 3, 2).
+        delta = (b[..., :2] / b[..., 3:4] - a[:, None, :2] / a[:, None, 3:4]) * (
+            half_viewport
         )
+        gram = np.einsum("nki,nkj->nij", delta, delta)
+        trace_half = (gram[:, 0, 0] + gram[:, 1, 1]) / 2
+        spread = np.sqrt(
+            ((gram[:, 0, 0] - gram[:, 1, 1]) / 2) ** 2 + gram[:, 0, 1] ** 2
+        )
+        worst = max(worst, float(np.sqrt(np.max(trace_half + spread))))
     return worst
 
 

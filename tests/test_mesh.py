@@ -298,3 +298,26 @@ def test_phase_replacement_evicts_cache_without_losing_the_surface():
         assert len(target.phases[-1][1]) == 1
     finally:
         stream.close()
+
+
+def test_lod_projects_the_error_ball_not_its_bounding_cube():
+    """An error bounds deviation in any direction, so its screen extent is
+    the error times the view scale under any rotation. Projecting the
+    enclosing cube overstated it by up to sqrt(3) and picked a level about
+    four times denser than the threshold requires."""
+    from scipy.spatial.transform import Rotation
+
+    half_viewport = 50.0  # px per NDC unit for a 100 px viewport
+    scale = 0.03  # world -> NDC
+    error = 1.0  # 1.5 px on screen
+    levels = (
+        MeshLevel((MeshChunk((0,), ((0.0,) * 3, (1.0,) * 3)),), 0.0),
+        MeshLevel((MeshChunk((0,), ((0.0,) * 3, (1.0,) * 3)),), error),
+    )
+    for rotation in Rotation.random(20, random_state=0):
+        matrix = np.eye(4)
+        matrix[:3, :3] = rotation.as_matrix() * scale
+        rotated = View((0, 1, 2), (None, None, None), (100, 100), matrix)
+        assert error * scale * half_viewport == pytest.approx(1.5)
+        assert select_mesh_level(levels, rotated, 2.0) == 1
+        assert select_mesh_level(levels, rotated, 1.4) == 0
