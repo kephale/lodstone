@@ -18,6 +18,15 @@ the 0.1 alpha series and may change between prereleases.
   grid, including when given one equal to the array's own; and `Level`
   locates chunks of a regular grid arithmetically. `read_chunk_sizes` stays
   authoritative for everything else.
+- Stream deep pyramids without re-reading their grids per chunk. Regular axes
+  built by `chunk_sizes_for` are recognized when handed back (for example as
+  `VirtualData.read_chunk_sizes`), so `normalize_chunk_sizes`,
+  `native_chunks_in_region` and `expand_region_to_chunk_grid` no longer walk
+  millions of sizes per call; new `axis_chunk_boundaries` gives one axis's
+  boundaries (cached for other grids). `fill_unloaded_chunks` takes optional
+  precomputed `boundaries`, which `VirtualData` and resident repair pass. At
+  23 levels the finest level streamed about 3 chunks/s; it now completes 893
+  chunks in about 11 s.
 
 ## 0.1.0a5 - 2026-11-24
 

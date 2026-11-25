@@ -35,13 +35,57 @@ def regular_chunk_sizes(
 
 
 # A deep pyramid's finest level has millions of chunks per axis, and every
-# view of a level asks for its grid: build each regular axis once.
+# view of a level asks for its grid: build each regular axis once, and
+# remember it, keyed by identity, so code handed the tuple back can tell it
+# is regular without reading millions of sizes.
+_REGULAR_AXES: dict[int, tuple[tuple[int, ...], int, int]] = {}
+
+
 @functools.lru_cache(maxsize=256)
 def _regular_axis_sizes(size: int, step: int) -> tuple[int, ...]:
     if size <= 0 or step <= 0:
         raise ValueError("shape and chunk dimensions must be positive")
     count, remainder = divmod(size, step)
-    return (step,) * count + ((remainder,) if remainder else ())
+    sizes = (step,) * count + ((remainder,) if remainder else ())
+    # the registry holds the tuple, so its id is not reused
+    _REGULAR_AXES[id(sizes)] = (sizes, size, step)
+    return sizes
+
+
+def _known_regular_axis(sizes: Any) -> tuple[int, int] | None:
+    """(extent, chunk size) of a regular axis built by this module."""
+
+    entry = _REGULAR_AXES.get(id(sizes))
+    if entry is None or entry[0] is not sizes:
+        return None
+    return entry[1], entry[2]
+
+
+_AXIS_BOUNDARIES: dict[int, tuple[Any, np.ndarray]] = {}
+
+
+def axis_chunk_boundaries(sizes: Sequence[int]) -> np.ndarray:
+    """Chunk boundary positions, zero through the extent, along one axis.
+
+    Regular axes from :func:`chunk_sizes_for` are computed arithmetically;
+    other grids are validated and accumulated once per sequence object.
+    """
+
+    regular = _known_regular_axis(sizes)
+    if regular is not None:
+        return _regular_axis_boundaries(*regular)
+    cached = _AXIS_BOUNDARIES.get(id(sizes))
+    if cached is not None and cached[0] is sizes:
+        return cached[1]
+    normalized = np.asarray(tuple(int(value) for value in sizes), dtype=np.int64)
+    if normalized.size == 0 or np.any(normalized <= 0):
+        raise ValueError("native chunk sizes must be positive")
+    bounds = np.concatenate(([0], np.cumsum(normalized)))
+    bounds.setflags(write=False)
+    if len(_AXIS_BOUNDARIES) >= 64:
+        _AXIS_BOUNDARIES.clear()
+    _AXIS_BOUNDARIES[id(sizes)] = (sizes, bounds)
+    return bounds
 
 
 @functools.lru_cache(maxsize=256)
@@ -101,6 +145,13 @@ def normalize_chunk_sizes(
         raise ValueError("shape and chunks must have equal dimensionality")
     if all(isinstance(value, (int, np.integer)) for value in chunks):
         return regular_chunk_sizes(shape, chunks)  # type: ignore[arg-type]
+    known = [_known_regular_axis(axis) for axis in chunks]
+    if all(
+        entry is not None and entry[0] == int(size)
+        for entry, size in zip(known, shape, strict=True)
+    ):
+        # already this module's regular axes: nothing to validate
+        return tuple(cast(Sequence[tuple[int, ...]], chunks))
     grid = tuple(
         tuple(int(value) for value in axis)
         for axis in cast(Sequence[Sequence[int]], chunks)

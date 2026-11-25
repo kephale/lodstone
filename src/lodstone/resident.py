@@ -11,8 +11,9 @@ from typing import Any
 
 import numpy as np
 
+from .chunks import _regular_axis_boundaries
 from .composition import fill_unloaded_chunks, nearest_resample_region
-from .model import Plan, Pyramid, Region, Tile, TileKey, Update
+from .model import Level, Plan, Pyramid, Region, Tile, TileKey, Update
 
 
 @dataclass(eq=False, slots=True)
@@ -89,6 +90,20 @@ class ResidentLease:
 
     def release(self, keys: Collection[TileKey]) -> None:
         self.resident.discard(keys)
+
+
+def _level_boundaries(level: Level) -> tuple[np.ndarray, ...]:
+    """Chunk boundary positions per axis, without listing a regular grid."""
+
+    if level.chunk_grid is None:
+        return tuple(
+            _regular_axis_boundaries(int(size), int(step))
+            for size, step in zip(level.shape, level.chunks, strict=True)
+        )
+    return tuple(
+        np.concatenate(([0], np.cumsum(axis, dtype=np.int64)))
+        for axis in level.chunk_grid
+    )
 
 
 class ResidentArrays:
@@ -398,6 +413,7 @@ def _compose_windows(
                     for axis in range(pyramid.ndim)
                 ),
                 destination.key_regions.values(),
+                boundaries=_level_boundaries(pyramid.levels[destination_level]),
             )
             if repaired:
                 changed[destination].extend(repaired)

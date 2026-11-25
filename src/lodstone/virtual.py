@@ -709,6 +709,7 @@ class MultiScaleVirtualData:
                     )
                     for chunk_id in dst.loaded_chunks
                 },
+                boundaries=dst._boundaries,
             )
             for chunk in filled:
                 chunk_id = tuple(zip(chunk.start, chunk.stop, strict=True))
