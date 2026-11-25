@@ -5,6 +5,20 @@ the 0.1 alpha series and may change between prereleases.
 
 ## Unreleased
 
+### Performance
+
+- Describe regular chunk grids by their chunk shape instead of listing every
+  chunk. A deep pyramid's finest level has millions of chunks per axis
+  (8.4 million at 23 levels of 32-voxel tiles), and opening one built and
+  validated those lists several times over: about 26 s at 23 levels, now
+  well under a second. Zarr arrays whose metadata declares a regular grid
+  (Zarr v2, or a v3 regular grid, sharded or not) skip `read_chunk_sizes`;
+  `chunk_boundaries` and regular grids are computed once per extent and
+  chunk size; `ArrayPyramidSource` keeps regular levels without a per-chunk
+  grid, including when given one equal to the array's own; and `Level`
+  locates chunks of a regular grid arithmetically. `read_chunk_sizes` stays
+  authoritative for everything else.
+
 ## 0.1.0a5 - 2026-11-24
 
 ### Datasets

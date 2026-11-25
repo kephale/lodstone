@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import itertools
 from collections.abc import Iterable, Sequence
 from typing import Any, cast
@@ -27,15 +28,67 @@ def regular_chunk_sizes(
 
     if len(shape) != len(chunk_shape):
         raise ValueError("shape and chunk shape must have equal dimensionality")
-    result = []
-    for size, step in zip(shape, chunk_shape, strict=True):
-        size = int(size)
-        step = int(step)
-        if size <= 0 or step <= 0:
-            raise ValueError("shape and chunk dimensions must be positive")
-        count, remainder = divmod(size, step)
-        result.append((step,) * count + ((remainder,) if remainder else ()))
-    return tuple(result)
+    return tuple(
+        _regular_axis_sizes(int(size), int(step))
+        for size, step in zip(shape, chunk_shape, strict=True)
+    )
+
+
+# A deep pyramid's finest level has millions of chunks per axis, and every
+# view of a level asks for its grid: build each regular axis once.
+@functools.lru_cache(maxsize=256)
+def _regular_axis_sizes(size: int, step: int) -> tuple[int, ...]:
+    if size <= 0 or step <= 0:
+        raise ValueError("shape and chunk dimensions must be positive")
+    count, remainder = divmod(size, step)
+    return (step,) * count + ((remainder,) if remainder else ())
+
+
+@functools.lru_cache(maxsize=256)
+def _regular_axis_boundaries(size: int, step: int) -> np.ndarray:
+    if size <= 0 or step <= 0:
+        raise ValueError("shape and chunk dimensions must be positive")
+    bounds = np.minimum(np.arange(0, size + step, step, dtype=np.int64), size)
+    if len(bounds) > 1 and bounds[-1] == bounds[-2]:
+        bounds = bounds[:-1]
+    bounds.setflags(write=False)
+    return bounds
+
+
+def regular_chunk_shape(array: Any) -> tuple[int, ...] | None:
+    """Return the chunk shape of an array with a regular chunk grid, or None.
+
+    A regular grid is described by one chunk shape, so its per-axis sizes
+    need not be read chunk by chunk: Zarr's ``read_chunk_sizes`` lists every
+    chunk, millions per axis for a deep pyramid's finest level. An array's
+    ``read_chunk_sizes`` stays authoritative unless its Zarr metadata
+    declares a regular grid (Zarr v2 grids always are); ``chunks`` is then
+    the read chunk shape (the inner one when sharded).
+    """
+
+    if hasattr(type(array), "read_chunk_sizes") or "read_chunk_sizes" in getattr(
+        array, "__dict__", {}
+    ):
+        metadata = getattr(array, "metadata", None)
+        grid = getattr(metadata, "chunk_grid", None)
+        # RegularChunkGrid before Zarr 3.4, RegularChunkGridMetadata since
+        regular_v3 = grid is not None and type(grid).__name__.startswith(
+            "RegularChunkGrid"
+        )
+        if not (regular_v3 or type(metadata).__name__ == "ArrayV2Metadata"):
+            return None
+    try:
+        chunks = getattr(array, "chunks", None)
+    except NotImplementedError:  # Zarr: unsharded rectilinear grid
+        return None
+    if chunks is None or len(chunks) != len(array.shape):
+        return None
+    if not all(isinstance(value, (int, np.integer)) for value in chunks):
+        return None
+    shape = tuple(int(value) for value in chunks)
+    if any(value <= 0 for value in shape):
+        return None
+    return shape
 
 
 def normalize_chunk_sizes(
@@ -67,6 +120,9 @@ def chunk_sizes_for(array: Any, *, fallback: int = 256) -> ChunkGrid:
     bounded regular fallback grid.
     """
 
+    regular = regular_chunk_shape(array)
+    if regular is not None:
+        return regular_chunk_sizes(array.shape, regular)
     sizes = getattr(array, "read_chunk_sizes", None)
     if sizes is not None:
         return normalize_chunk_sizes(array.shape, sizes)
@@ -85,6 +141,12 @@ def chunk_shape_for(array: Any, *, fallback: int = 256) -> tuple[int, ...]:
     chunksize = getattr(array, "chunksize", None)
     if chunksize is not None:
         return tuple(int(value) for value in chunksize)
+    regular = regular_chunk_shape(array)
+    if regular is not None:
+        return tuple(
+            min(int(step), int(size))
+            for step, size in zip(regular, array.shape, strict=True)
+        )
     return tuple(
         max(axis) if axis else 1 for axis in chunk_sizes_for(array, fallback=fallback)
     )
@@ -93,6 +155,12 @@ def chunk_shape_for(array: Any, *, fallback: int = 256) -> tuple[int, ...]:
 def chunk_boundaries(array: Any, *, fallback: int = 256) -> tuple[np.ndarray, ...]:
     """Return integer boundary positions from zero through each axis extent."""
 
+    regular = regular_chunk_shape(array)
+    if regular is not None:
+        return tuple(
+            _regular_axis_boundaries(int(size), int(step))
+            for size, step in zip(array.shape, regular, strict=True)
+        )
     return tuple(
         np.concatenate(([0], np.cumsum(axis, dtype=np.int64)))
         for axis in chunk_sizes_for(array, fallback=fallback)

@@ -8,7 +8,12 @@ from typing import Any
 
 import numpy as np
 
-from ..chunks import chunk_shape_for, chunk_sizes_for, normalize_chunk_sizes
+from ..chunks import (
+    chunk_shape_for,
+    chunk_sizes_for,
+    normalize_chunk_sizes,
+    regular_chunk_shape,
+)
 from ..model import Level, Pyramid, Region, identity_transform
 
 
@@ -39,7 +44,8 @@ class FixedAxisArray:
 
         source_grid = chunk_sizes_for(array)
         self.read_chunk_sizes = tuple(source_grid[axis] for axis in self.source_axes)
-        self.chunksize = tuple(max(axis) for axis in self.read_chunk_sizes)
+        source_chunks = chunk_shape_for(array)
+        self.chunksize = tuple(source_chunks[axis] for axis in self.source_axes)
 
     def __getitem__(self, key: Any) -> Any:
         if not isinstance(key, tuple):
@@ -57,6 +63,23 @@ class FixedAxisArray:
             for axis in range(len(self._array.shape))
         )
         return self._array[source_key]
+
+
+def _is_regular_grid_of(array: Any, native: Any) -> bool:
+    """Whether ``native`` (None, a chunk shape or per-axis chunk sizes)
+    describes ``array``'s own regular chunk grid."""
+
+    regular = regular_chunk_shape(array)
+    if regular is None:
+        return False
+    if native is None:
+        return True
+    native = tuple(native)
+    if all(isinstance(value, (int, np.integer)) for value in native):
+        return tuple(int(value) for value in native) == regular
+    # equal per-axis sizes; usually the same cached tuples, compared by
+    # identity, else compared in C
+    return native == chunk_sizes_for(array)
 
 
 class ArrayPyramidSource:
@@ -89,7 +112,13 @@ class ArrayPyramidSource:
             if len(shape) != ndim:
                 raise ValueError("all arrays must have equal dimensionality")
             native = None if chunks is None else chunks[index]
-            if native is None:
+            if _is_regular_grid_of(array, native):
+                # A regular grid is described by its chunk shape; the level
+                # derives per-chunk sizes only when asked, rather than
+                # validating millions per axis for a deep pyramid
+                chunk_grid = None
+                chunk_shape = chunk_shape_for(array)
+            elif native is None:
                 chunk_grid = chunk_sizes_for(array)
                 chunk_shape = chunk_shape_for(array)
             else:

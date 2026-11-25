@@ -63,3 +63,77 @@ def test_chunk_slice_keys_and_ids() -> None:
         (2, 5),
         (10, 20),
     )
+
+
+def _deep_zarr_level(shards=None):
+    zarr = pytest.importorskip("zarr")
+    # 2**22 chunks per axis: listing them is what made deep pyramids slow
+    return zarr.create_array(
+        {},
+        shape=(2**27, 2**27, 2**27),
+        chunks=(32, 32, 32),
+        shards=shards,
+        dtype="u1",
+    )
+
+
+def test_regular_zarr_grid_is_described_without_listing_chunks(
+    monkeypatch,
+) -> None:
+    array = _deep_zarr_level()
+    zarr_array = type(array)
+
+    def listed(self):
+        raise AssertionError("a regular grid must not be listed chunk by chunk")
+
+    monkeypatch.setattr(zarr_array, "read_chunk_sizes", property(listed))
+
+    from lodstone.chunks import regular_chunk_shape
+
+    assert regular_chunk_shape(array) == (32, 32, 32)
+    assert chunk_shape_for(array) == (32, 32, 32)
+    sizes = chunk_sizes_for(array)
+    assert len(sizes[0]) == 2**22 and set(sizes[0]) == {32}
+    boundaries = chunk_boundaries(array)
+    assert boundaries[0][1] == 32 and boundaries[0][-1] == 2**27
+
+
+def test_sharded_regular_zarr_grid_uses_the_inner_chunks() -> None:
+    array = _deep_zarr_level(shards=(64, 64, 64))
+    assert chunk_shape_for(array) == (32, 32, 32)
+
+
+def test_regular_boundaries_clip_the_last_chunk() -> None:
+    class _Regular:
+        shape = (10, 8)
+        chunks = (4, 8)
+
+    np.testing.assert_array_equal(chunk_boundaries(_Regular())[0], [0, 4, 8, 10])
+    np.testing.assert_array_equal(chunk_boundaries(_Regular())[1], [0, 8])
+    assert chunk_shape_for(_Regular()) == (4, 8)
+
+
+def test_array_source_keeps_regular_levels_compact() -> None:
+    from lodstone.sources import ArrayPyramidSource
+
+    array = _deep_zarr_level()
+    implicit = ArrayPyramidSource([array])
+    # an explicit grid equal to the array's own is recognized as regular
+    explicit = ArrayPyramidSource([array], chunks=[chunk_sizes_for(array)])
+    shape_only = ArrayPyramidSource([array], chunks=[(32, 32, 32)])
+
+    for source in (implicit, explicit, shape_only):
+        level = source.pyramid.levels[0]
+        assert level.chunk_grid is None
+        assert level.chunks == (32, 32, 32)
+        assert level.chunk_bounds(0, 2**22 - 1) == (2**27 - 32, 2**27)
+
+
+def test_array_source_keeps_a_different_explicit_grid() -> None:
+    from lodstone.sources import ArrayPyramidSource
+
+    zarr = pytest.importorskip("zarr")
+    array = zarr.create_array({}, shape=(10,), chunks=(5,), dtype="u1")
+    source = ArrayPyramidSource([array], chunks=[((2, 3, 5),)])
+
+    assert source.pyramid.levels[0].chunk_grid == ((2, 3, 5),)

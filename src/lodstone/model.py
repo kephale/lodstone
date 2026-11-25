@@ -124,6 +124,12 @@ class Level:
     def chunk_bounds(self, axis: int, index: int) -> tuple[int, int]:
         """Return the half-open bounds of one native chunk."""
 
+        if self.chunk_grid is None:
+            # regular grid: arithmetic, not a list of every chunk
+            step, extent = self.chunks[axis], self.shape[axis]
+            if not 0 <= index < -(-extent // step):
+                raise IndexError("chunk index is outside the native chunk grid")
+            return index * step, min((index + 1) * step, extent)
         stops = self._chunk_stops(axis)
         if not 0 <= index < len(stops):
             raise IndexError("chunk index is outside the native chunk grid")
@@ -134,6 +140,8 @@ class Level:
 
         if not 0 <= coordinate < self.shape[axis]:
             raise IndexError("coordinate is outside the level")
+        if self.chunk_grid is None:
+            return coordinate // self.chunks[axis]
         return bisect.bisect_right(self._chunk_stops(axis), coordinate)
 
 
