@@ -37,6 +37,7 @@ from .chunks import (
     chunk_sizes_for,
 )
 from .composition import fill_unloaded_chunks, nearest_resample_region
+from .grid import searchsorted
 from .model import Region
 
 if TYPE_CHECKING:
@@ -275,8 +276,8 @@ class VirtualData:
             bounds = self._boundaries[dim]
             min_c = int(np.clip(min_coord[dim], 0, self.shape[dim]))
             max_c = int(np.clip(max_coord[dim], 0, self.shape[dim]))
-            i = max(int(np.searchsorted(bounds, min_c, side="right")) - 1, 0)
-            j = int(np.searchsorted(bounds, max_c, side="left"))
+            i = max(searchsorted(bounds, min_c, "right") - 1, 0)
+            j = searchsorted(bounds, max_c, "left")
             j = min(max(j, i + 1), len(bounds) - 1)
             lo.append(int(bounds[i]))
             hi.append(int(bounds[j]))

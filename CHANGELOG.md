@@ -27,6 +27,17 @@ the 0.1 alpha series and may change between prereleases.
   precomputed `boundaries`, which `VirtualData` and resident repair pass. At
   23 levels the finest level streamed about 3 chunks/s; it now completes 893
   chunks in about 11 s.
+- Represent huge regular axes compactly. Axes with more than 65,536 chunks
+  (`lodstone.grid.COMPACT_GRID_MIN_CHUNKS`, or the
+  `LODSTONE_COMPACT_GRID_MIN_CHUNKS` environment variable) get a
+  `RegularChunkSizes` and `RegularChunkBoundaries` computed on demand instead
+  of a tuple and an array; typical grids stay materialized, as before. Opening
+  the 26-level Mandelbulb in napari drops from 2,870 MiB peak memory and
+  0.87 s to 314 MiB and 0.10 s. Chunk queries go through new helpers
+  (`searchsorted`, `chunk_index_range`, `max_chunk_size`) that handle both
+  forms; on typical grids they cost under a microsecond more per call.
+  `chunk_boundaries`, `chunk_sizes_for` and `Level.chunk_sizes` may now
+  return the compact forms for such axes.
 
 ## 0.1.0a5 - 2026-11-24
 

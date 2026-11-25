@@ -11,8 +11,8 @@ from typing import Any
 
 import numpy as np
 
-from .chunks import _regular_axis_boundaries
 from .composition import fill_unloaded_chunks, nearest_resample_region
+from .grid import regular_axis_boundaries
 from .model import Level, Plan, Pyramid, Region, Tile, TileKey, Update
 
 
@@ -97,7 +97,7 @@ def _level_boundaries(level: Level) -> tuple[np.ndarray, ...]:
 
     if level.chunk_grid is None:
         return tuple(
-            _regular_axis_boundaries(int(size), int(step))
+            regular_axis_boundaries(int(size), int(step))
             for size, step in zip(level.shape, level.chunks, strict=True)
         )
     return tuple(

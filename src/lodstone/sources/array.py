@@ -14,6 +14,7 @@ from ..chunks import (
     normalize_chunk_sizes,
     regular_chunk_shape,
 )
+from ..grid import max_chunk_size
 from ..model import Level, Pyramid, Region, identity_transform
 
 
@@ -123,7 +124,7 @@ class ArrayPyramidSource:
                 chunk_shape = chunk_shape_for(array)
             else:
                 chunk_grid = normalize_chunk_sizes(shape, native)
-                chunk_shape = tuple(max(axis) for axis in chunk_grid)
+                chunk_shape = tuple(max_chunk_size(axis) for axis in chunk_grid)
             fill_value = getattr(array, "fill_value", 0)
             if fill_value is None:
                 fill_value = 0

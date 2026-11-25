@@ -5,10 +5,12 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Collection, Sequence
 from itertools import product
+from typing import Any
 
 import numpy as np
 
-from .chunks import ChunkGrid
+from .chunks import ChunkGrid, axis_chunk_boundaries
+from .grid import chunk_index_range
 from .model import Region
 
 
@@ -84,7 +86,7 @@ def fill_unloaded_chunks(
     chunk_grid: ChunkGrid,
     loaded: Collection[Region],
     *,
-    boundaries: Sequence[np.ndarray] | None = None,
+    boundaries: Sequence[Any] | None = None,
 ) -> tuple[Region, ...]:
     """Copy backdrop content into native chunks not present in ``loaded``.
 
@@ -111,16 +113,13 @@ def fill_unloaded_chunks(
         return ()
 
     if boundaries is None:
-        boundaries = [np.concatenate(([0], np.cumsum(axis))) for axis in chunk_grid]
+        boundaries = [axis_chunk_boundaries(axis) for axis in chunk_grid]
     elif len(boundaries) != ndim:
         raise ValueError("boundaries must have one array per dimension")
     loaded_set = set(loaded)
 
     def chunk_range(axis: int, start: int, stop: int) -> range:
-        starts, stops = boundaries[axis][:-1], boundaries[axis][1:]
-        first = int(np.searchsorted(stops, start, side="right"))
-        last = int(np.searchsorted(starts, stop, side="left"))
-        return range(first, last)
+        return chunk_index_range(boundaries[axis], start, stop)
 
     # Index loaded regions by the native chunks they touch, so each chunk
     # tests only its own neighbours. Scanning every loaded region for every

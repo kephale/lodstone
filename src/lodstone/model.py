@@ -5,6 +5,7 @@ from __future__ import annotations
 import bisect
 import functools
 import itertools
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from functools import reduce
@@ -13,6 +14,8 @@ from typing import Any, Literal
 
 import numpy as np
 import numpy.typing as npt
+
+from .grid import known_regular_axis, regular_axis_sizes
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,7 +64,7 @@ class Level:
     dtype: np.dtype
     chunks: tuple[int, ...]
     voxel_to_world: npt.NDArray[np.float64]
-    chunk_grid: tuple[tuple[int, ...], ...] | None = None
+    chunk_grid: tuple[Sequence[int], ...] | None = None
     fill_value: Any = 0
 
     def __post_init__(self) -> None:
@@ -78,19 +81,30 @@ class Level:
                 raise ValueError(
                     "chunk grid must have one sequence per array dimension"
                 )
+            # regular axes from lodstone.chunks (compact ones included) are
+            # valid by construction; only their extent needs checking
             normalized_grid = tuple(
-                tuple(int(value) for value in axis) for axis in grid
+                axis
+                if known_regular_axis(axis) is not None
+                else tuple(int(value) for value in axis)
+                for axis in grid
             )
-            if any(
-                not axis or any(value <= 0 for value in axis)
-                for axis in normalized_grid
-            ):
-                raise ValueError("chunk grid dimensions must be non-empty and positive")
-            if any(
-                sum(axis) != size
-                for axis, size in zip(normalized_grid, self.shape, strict=True)
-            ):
-                raise ValueError("chunk grid sizes must exactly cover the level shape")
+            for axis, size in zip(normalized_grid, self.shape, strict=True):
+                regular = known_regular_axis(axis)
+                if regular is not None:
+                    if regular[0] != size:
+                        raise ValueError(
+                            "chunk grid sizes must exactly cover the level shape"
+                        )
+                    continue
+                if not axis or any(value <= 0 for value in axis):
+                    raise ValueError(
+                        "chunk grid dimensions must be non-empty and positive"
+                    )
+                if sum(axis) != size:
+                    raise ValueError(
+                        "chunk grid sizes must exactly cover the level shape"
+                    )
             object.__setattr__(self, "chunk_grid", normalized_grid)
         matrix = np.asarray(self.voxel_to_world, dtype=np.float64)
         if matrix.shape != (ndim + 1, ndim + 1):
@@ -107,26 +121,36 @@ class Level:
     def ndim(self) -> int:
         return len(self.shape)
 
-    def chunk_sizes(self, axis: int) -> tuple[int, ...]:
-        """Return every native chunk size along ``axis``."""
+    def chunk_sizes(self, axis: int) -> Sequence[int]:
+        """Return every native chunk size along ``axis``.
+
+        A tuple, or for a huge regular axis a compact
+        :class:`lodstone.grid.RegularChunkSizes`.
+        """
 
         if self.chunk_grid is not None:
             return self.chunk_grid[axis]
-        return _regular_chunk_sizes(self.shape[axis], self.chunks[axis])
+        return regular_axis_sizes(self.shape[axis], self.chunks[axis])
+
+    def _regular_axis(self, axis: int) -> tuple[int, int] | None:
+        """(extent, step) when ``axis`` is regular, located arithmetically."""
+
+        if self.chunk_grid is None:
+            return self.shape[axis], self.chunks[axis]
+        return known_regular_axis(self.chunk_grid[axis])
 
     def _chunk_stops(self, axis: int) -> tuple[int, ...]:
-        if self.chunk_grid is not None:
-            return _cumulative_stops(self.chunk_grid[axis])
-        return _cumulative_stops(
-            _regular_chunk_sizes(self.shape[axis], self.chunks[axis])
-        )
+        # explicit grids only; regular axes are located arithmetically
+        assert self.chunk_grid is not None
+        return _cumulative_stops(tuple(self.chunk_grid[axis]))
 
     def chunk_bounds(self, axis: int, index: int) -> tuple[int, int]:
         """Return the half-open bounds of one native chunk."""
 
-        if self.chunk_grid is None:
-            # regular grid: arithmetic, not a list of every chunk
-            step, extent = self.chunks[axis], self.shape[axis]
+        regular = self._regular_axis(axis)
+        if regular is not None:
+            # arithmetic, not a list of every chunk
+            extent, step = regular
             if not 0 <= index < -(-extent // step):
                 raise IndexError("chunk index is outside the native chunk grid")
             return index * step, min((index + 1) * step, extent)
@@ -140,19 +164,14 @@ class Level:
 
         if not 0 <= coordinate < self.shape[axis]:
             raise IndexError("coordinate is outside the level")
-        if self.chunk_grid is None:
-            return coordinate // self.chunks[axis]
+        regular = self._regular_axis(axis)
+        if regular is not None:
+            return coordinate // regular[1]
         return bisect.bisect_right(self._chunk_stops(axis), coordinate)
 
 
 # Planning and streaming look chunks up per tile and axis, tens of thousands
 # of times per 3D plan. Levels are immutable, so derive each axis layout once.
-@functools.lru_cache(maxsize=1024)
-def _regular_chunk_sizes(extent: int, size: int) -> tuple[int, ...]:
-    count, remainder = divmod(extent, size)
-    return (size,) * count + ((remainder,) if remainder else ())
-
-
 @functools.lru_cache(maxsize=1024)
 def _cumulative_stops(sizes: tuple[int, ...]) -> tuple[int, ...]:
     return tuple(itertools.accumulate(sizes))

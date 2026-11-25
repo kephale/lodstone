@@ -2,16 +2,24 @@
 
 from __future__ import annotations
 
-import functools
 import itertools
 from collections.abc import Iterable, Sequence
 from typing import Any, cast
 
 import numpy as np
 
+from .grid import (
+    chunk_index_range,
+    known_regular_axis,
+    max_chunk_size,
+    regular_axis_boundaries,
+    regular_axis_sizes,
+)
 from .model import Region
 
-ChunkGrid = tuple[tuple[int, ...], ...]
+# Per axis, the size of every native chunk: a tuple, or for a huge regular
+# axis a compact lodstone.grid.RegularChunkSizes
+ChunkGrid = tuple[Sequence[int], ...]
 
 
 def chunk_key_id(key: Sequence[slice]) -> tuple[tuple[int, int], ...]:
@@ -29,51 +37,25 @@ def regular_chunk_sizes(
     if len(shape) != len(chunk_shape):
         raise ValueError("shape and chunk shape must have equal dimensionality")
     return tuple(
-        _regular_axis_sizes(int(size), int(step))
+        regular_axis_sizes(int(size), int(step))
         for size, step in zip(shape, chunk_shape, strict=True)
     )
-
-
-# A deep pyramid's finest level has millions of chunks per axis, and every
-# view of a level asks for its grid: build each regular axis once, and
-# remember it, keyed by identity, so code handed the tuple back can tell it
-# is regular without reading millions of sizes.
-_REGULAR_AXES: dict[int, tuple[tuple[int, ...], int, int]] = {}
-
-
-@functools.lru_cache(maxsize=256)
-def _regular_axis_sizes(size: int, step: int) -> tuple[int, ...]:
-    if size <= 0 or step <= 0:
-        raise ValueError("shape and chunk dimensions must be positive")
-    count, remainder = divmod(size, step)
-    sizes = (step,) * count + ((remainder,) if remainder else ())
-    # the registry holds the tuple, so its id is not reused
-    _REGULAR_AXES[id(sizes)] = (sizes, size, step)
-    return sizes
-
-
-def _known_regular_axis(sizes: Any) -> tuple[int, int] | None:
-    """(extent, chunk size) of a regular axis built by this module."""
-
-    entry = _REGULAR_AXES.get(id(sizes))
-    if entry is None or entry[0] is not sizes:
-        return None
-    return entry[1], entry[2]
 
 
 _AXIS_BOUNDARIES: dict[int, tuple[Any, np.ndarray]] = {}
 
 
-def axis_chunk_boundaries(sizes: Sequence[int]) -> np.ndarray:
+def axis_chunk_boundaries(sizes: Sequence[int]) -> Any:
     """Chunk boundary positions, zero through the extent, along one axis.
 
-    Regular axes from :func:`chunk_sizes_for` are computed arithmetically;
-    other grids are validated and accumulated once per sequence object.
+    Regular axes from :func:`chunk_sizes_for` are computed arithmetically
+    (compact for huge axes, see :mod:`lodstone.grid`); other grids are
+    validated and accumulated once per sequence object.
     """
 
-    regular = _known_regular_axis(sizes)
+    regular = known_regular_axis(sizes)
     if regular is not None:
-        return _regular_axis_boundaries(*regular)
+        return regular_axis_boundaries(*regular)
     cached = _AXIS_BOUNDARIES.get(id(sizes))
     if cached is not None and cached[0] is sizes:
         return cached[1]
@@ -85,17 +67,6 @@ def axis_chunk_boundaries(sizes: Sequence[int]) -> np.ndarray:
     if len(_AXIS_BOUNDARIES) >= 64:
         _AXIS_BOUNDARIES.clear()
     _AXIS_BOUNDARIES[id(sizes)] = (sizes, bounds)
-    return bounds
-
-
-@functools.lru_cache(maxsize=256)
-def _regular_axis_boundaries(size: int, step: int) -> np.ndarray:
-    if size <= 0 or step <= 0:
-        raise ValueError("shape and chunk dimensions must be positive")
-    bounds = np.minimum(np.arange(0, size + step, step, dtype=np.int64), size)
-    if len(bounds) > 1 and bounds[-1] == bounds[-2]:
-        bounds = bounds[:-1]
-    bounds.setflags(write=False)
     return bounds
 
 
@@ -145,7 +116,7 @@ def normalize_chunk_sizes(
         raise ValueError("shape and chunks must have equal dimensionality")
     if all(isinstance(value, (int, np.integer)) for value in chunks):
         return regular_chunk_sizes(shape, chunks)  # type: ignore[arg-type]
-    known = [_known_regular_axis(axis) for axis in chunks]
+    known = [known_regular_axis(axis) for axis in chunks]
     if all(
         entry is not None and entry[0] == int(size)
         for entry, size in zip(known, shape, strict=True)
@@ -199,27 +170,33 @@ def chunk_shape_for(array: Any, *, fallback: int = 256) -> tuple[int, ...]:
             for step, size in zip(regular, array.shape, strict=True)
         )
     return tuple(
-        max(axis) if axis else 1 for axis in chunk_sizes_for(array, fallback=fallback)
+        max_chunk_size(axis) if len(axis) else 1
+        for axis in chunk_sizes_for(array, fallback=fallback)
     )
 
 
-def chunk_boundaries(array: Any, *, fallback: int = 256) -> tuple[np.ndarray, ...]:
-    """Return integer boundary positions from zero through each axis extent."""
+def chunk_boundaries(array: Any, *, fallback: int = 256) -> tuple[Any, ...]:
+    """Return integer boundary positions from zero through each axis extent.
+
+    Each axis is an array, or for a huge regular axis a compact
+    :class:`lodstone.grid.RegularChunkBoundaries`; query them with
+    :func:`lodstone.grid.searchsorted` and integer indexing.
+    """
 
     regular = regular_chunk_shape(array)
     if regular is not None:
         return tuple(
-            _regular_axis_boundaries(int(size), int(step))
+            regular_axis_boundaries(int(size), int(step))
             for size, step in zip(array.shape, regular, strict=True)
         )
     return tuple(
-        np.concatenate(([0], np.cumsum(axis, dtype=np.int64)))
+        axis_chunk_boundaries(axis)
         for axis in chunk_sizes_for(array, fallback=fallback)
     )
 
 
 def chunk_ids_in_region(
-    boundaries: Sequence[np.ndarray],
+    boundaries: Sequence[Any],
     start: Sequence[int],
     stop: Sequence[int],
 ) -> Iterable[tuple[tuple[int, int], ...]]:
@@ -229,11 +206,11 @@ def chunk_ids_in_region(
         raise ValueError("boundaries and region must have equal dimensionality")
     per_axis = []
     for axis, bounds in enumerate(boundaries):
-        starts, stops = bounds[:-1], bounds[1:]
-        first = int(np.searchsorted(stops, int(start[axis]), side="right"))
-        last = int(np.searchsorted(starts, int(stop[axis]), side="left"))
         per_axis.append(
-            tuple((int(starts[i]), int(stops[i])) for i in range(first, last))
+            tuple(
+                (int(bounds[i]), int(bounds[i + 1]))
+                for i in chunk_index_range(bounds, int(start[axis]), int(stop[axis]))
+            )
         )
     return itertools.product(*per_axis)
 
@@ -254,13 +231,12 @@ def chunk_slices_for(
         start, stop = region
     per_axis = []
     for axis, bounds in enumerate(boundaries):
-        starts, stops = bounds[:-1], bounds[1:]
-        first = int(np.searchsorted(stops, int(start[axis]), side="right"))
-        last = int(np.searchsorted(starts, int(stop[axis]), side="left"))
         per_axis.append(
             tuple(
-                slice(int(starts[index]), int(stops[index]))
-                for index in range(first, last)
+                slice(int(bounds[index]), int(bounds[index + 1]))
+                for index in chunk_index_range(
+                    bounds, int(start[axis]), int(stop[axis])
+                )
             )
         )
     return tuple(per_axis)
