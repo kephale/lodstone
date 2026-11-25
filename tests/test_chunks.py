@@ -86,7 +86,8 @@ def test_regular_zarr_grid_is_described_without_listing_chunks(
     def listed(self):
         raise AssertionError("a regular grid must not be listed chunk by chunk")
 
-    monkeypatch.setattr(zarr_array, "read_chunk_sizes", property(listed))
+    # older Zarr has no read_chunk_sizes; add the trap either way
+    monkeypatch.setattr(zarr_array, "read_chunk_sizes", property(listed), raising=False)
 
     from lodstone.chunks import regular_chunk_shape
 
