@@ -468,18 +468,20 @@ def write_surface_levels(output: Path, all_levels: list) -> Path:
         )
         if index:
             shutil.copytree(destination / "0", root / str(index), dirs_exist_ok=True)
-            node = root / str(index) / "zarr.json"
-            metadata = json.loads(node.read_text())
-            metadata["attributes"]["zarr_vectors_level"]["level"] = index
-            node.write_text(json.dumps(metadata))
-    node = root / "zarr.json"
-    metadata = json.loads(node.read_text())
-    multiscales = metadata["attributes"]["multiscales"][0]
-    datasets = []
-    for index in range(len(all_levels)):
-        dataset = dict(multiscales["datasets"][0])
-        dataset["path"] = str(index)
-        datasets.append(dataset)
-    multiscales["datasets"] = datasets
-    node.write_text(json.dumps(metadata))
+            add_copied_level(root, index)
     return root
+
+
+def add_copied_level(root: Path, level: int) -> None:
+    """Register a level copied from a one-level Zarr Vectors store.
+
+    The copy keeps its level-0 metadata, so its ``zarr_vectors`` level number
+    is corrected and the level is listed in the root ``multiscales`` layout.
+    """
+    node = root / str(level) / "zarr.json"
+    metadata = json.loads(node.read_text())
+    metadata["attributes"]["zarr_vectors"]["level"] = level
+    node.write_text(json.dumps(metadata))
+    building = import_module("zarr_vectors.building")
+    open_store = import_module("zarr_vectors.core.store").open_store
+    building.upsert_level_transform(open_store(str(root), mode="r+"), level)

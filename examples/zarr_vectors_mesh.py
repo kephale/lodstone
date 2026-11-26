@@ -2,7 +2,7 @@
 # requires-python = ">=3.13,<3.14"
 # dependencies = [
 #   "lodstone[mesh-demo]==0.1.0a3",
-#   "zarr-vectors==0.9.4",
+#   "zarr-vectors==0.10.0",
 #   "numpy==2.5.1",
 #   "scipy==1.18.1",
 #   "zarr==3.3.0",
@@ -31,6 +31,7 @@ import numpy as np
 
 from lodstone import View
 from lodstone.adapters.pygfx_mesh import PyGFXMeshTarget
+from lodstone.biological_mesh import add_copied_level
 from lodstone.mesh import MeshStream
 from lodstone.sources.zarr_vectors import ZarrVectorsMeshSource
 
@@ -54,17 +55,7 @@ def synthetic_store(directory: Path) -> Path:
         )
         if level:
             shutil.copytree(destination / "0", root / str(level))
-            node = root / str(level) / "zarr.json"
-            metadata = json.loads(node.read_text())
-            metadata["attributes"]["zarr_vectors_level"]["level"] = level
-            node.write_text(json.dumps(metadata))
-    node = root / "zarr.json"
-    metadata = json.loads(node.read_text())
-    multiscales = metadata["attributes"]["multiscales"][0]
-    coarse = dict(multiscales["datasets"][0])
-    coarse["path"] = "1"
-    multiscales["datasets"].append(coarse)
-    node.write_text(json.dumps(metadata))
+            add_copied_level(root, level)
     return root
 
 

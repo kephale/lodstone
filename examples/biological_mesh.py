@@ -2,7 +2,7 @@
 # requires-python = ">=3.13,<3.14"
 # dependencies = [
 #   "lodstone[mesh-demo]==0.1.0a3",
-#   "zarr-vectors==0.9.4",
+#   "zarr-vectors==0.10.0",
 #   "numpy==2.5.1",
 #   "zarr==3.3.0",
 #   "pygfx==0.17.0",
