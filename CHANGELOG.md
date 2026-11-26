@@ -5,6 +5,8 @@ the 0.1 alpha series and may change between prereleases.
 
 ## Unreleased
 
+## 0.1.0a7 - 2026-11-26
+
 ### Datasets
 
 - Add `lodstone.datasets.MandelbulbMeshSource`, a generated multiscale
