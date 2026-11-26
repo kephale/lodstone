@@ -355,3 +355,37 @@ def test_two_step_target_prepares_off_the_dispatch_thread():
         assert not set(target.prepared_on) & set(dispatch_threads)
     finally:
         stream.close()
+
+
+def test_write_surface_levels_registers_coarse_level(tmp_path):
+    pytest.importorskip("zarr_vectors")
+    from zarr_vectors import building
+    from zarr_vectors.core.store import open_store
+
+    from lodstone.biological_mesh import write_surface_levels
+    from lodstone.sources.zarr_vectors import ZarrVectorsMeshSource
+
+    fine = np.array(
+        [[1.0, 1.0, 1.0], [5.0, 1.0, 1.0], [1.0, 5.0, 1.0], [5.0, 5.0, 1.0]],
+        dtype=np.float32,
+    )
+    coarse = np.array(
+        [[1.0, 1.0, 1.0], [5.0, 1.0, 1.0], [1.0, 5.0, 1.0]], dtype=np.float32
+    )
+    root = write_surface_levels(
+        tmp_path,
+        [
+            [(fine, np.array([[0, 1, 2], [1, 3, 2]]), 7)],
+            [(coarse, np.array([[0, 1, 2]]), 7)],
+        ],
+    )
+
+    store = open_store(root)
+    assert building.list_resolution_levels(store) == [0, 1]
+    assert building.read_level_metadata(store, 1).level == 1
+    source = ZarrVectorsMeshSource(root, level_errors=[0.0, 1.0])
+    try:
+        levels = [asyncio.run(source.read(level, (0, 0, 0))) for level in (0, 1)]
+    finally:
+        source.close()
+    assert [len(level.faces) for level in levels] == [2, 1]

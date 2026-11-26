@@ -13,9 +13,11 @@ pip install -e ".[mesh]"                   # headless mesh support
 uv sync --frozen --extra biological-demo   # include the neuron viewer
 ```
 
-The mesh extras require [Zarr Vectors 0.9.4](https://github.com/AllenInstitute/zarr-vectors-py/releases/tag/v0.9.4),
-or a later 0.9 release, which include the accepted ownership reader and
-scoped-link integration. The standalone demos pin 0.9.4 exactly.
+The mesh extras require [Zarr Vectors 0.10](https://github.com/AllenInstitute/zarr-vectors-py/releases/tag/v0.10.0).
+The standalone demos pin 0.10.0 exactly. Zarr Vectors 0.10 refuses stores
+written in the 0.9 format; migrate one in place with
+`zarr_vectors.building.migrate_metadata_0_10(path)`, which rewrites metadata
+only.
 The package installs from PyPI; no Git dependency or sibling checkout is needed.
 
 ## Open your own mesh
@@ -80,8 +82,8 @@ checks need a prepared cache. [Neuron checks](../examples/data/hemibrain-referen
 
 ### Upstream integration check
 
-The pinned 0.9.4 release includes the accepted ownership reader and its
-scoped-link integration. Consumer validation on 2026-11-17 passed the full
+Zarr Vectors 0.9.4 added the accepted ownership reader and its
+scoped-link integration. Consumer validation against 0.9.4 on 2026-11-17 passed the full
 Python 3.14 suite (236 tests), including the opt-in cached microscopy reference
 and both neuron LOD references. Python 3.11 passed 22 headless mesh consumer tests.
 

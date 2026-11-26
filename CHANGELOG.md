@@ -39,6 +39,14 @@ the 0.1 alpha series and may change between prereleases.
   `chunk_boundaries`, `chunk_sizes_for` and `Level.chunk_sizes` may now
   return the compact forms for such axes.
 
+### Meshes
+
+- Require `zarr-vectors>=0.10,<0.11` for the `mesh` extra. Zarr Vectors 0.10
+  moves store metadata onto the Zarr Vectors convention and refuses 0.9 stores;
+  `zarr_vectors.building.migrate_metadata_0_10(path)` migrates them.
+- Register copied coarse levels through the Zarr Vectors level API instead of
+  editing the old `zarr_vectors_level` and `multiscales.datasets` metadata.
+
 ## 0.1.0a5 - 2026-11-24
 
 ### Datasets
