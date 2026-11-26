@@ -5,6 +5,16 @@ the 0.1 alpha series and may change between prereleases.
 
 ## Unreleased
 
+### Datasets
+
+- Add `lodstone.datasets.MandelbulbMeshSource`, a generated multiscale
+  Mandelbulb surface for stress testing mesh streams at any depth. Each level
+  lists only the chunks the surface may reach (about 175,000 at the finest of
+  8 levels), and chunks are marching-cubed from the distance estimate when
+  read, in a worker thread. Neighbouring chunks sample a shared lattice, so
+  they meet without cracks. Reading needs scikit-image; numba is used when
+  available, with a NumPy fallback.
+
 ## 0.1.0a6 - 2026-11-25
 
 ### Performance
