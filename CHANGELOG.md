@@ -5,6 +5,8 @@ the 0.1 alpha series and may change between prereleases.
 
 ## Unreleased
 
+## 0.1.0a6 - 2026-11-25
+
 ### Performance
 
 - Describe regular chunk grids by their chunk shape instead of listing every
