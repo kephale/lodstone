@@ -5,6 +5,40 @@ the 0.1 alpha series and may change between prereleases.
 
 ## Unreleased
 
+### Performance
+
+- Describe regular chunk grids by their chunk shape instead of listing every
+  chunk. A deep pyramid's finest level has millions of chunks per axis
+  (8.4 million at 23 levels of 32-voxel tiles), and opening one built and
+  validated those lists several times over: about 26 s at 23 levels, now
+  well under a second. Zarr arrays whose metadata declares a regular grid
+  (Zarr v2, or a v3 regular grid, sharded or not) skip `read_chunk_sizes`;
+  `chunk_boundaries` and regular grids are computed once per extent and
+  chunk size; `ArrayPyramidSource` keeps regular levels without a per-chunk
+  grid, including when given one equal to the array's own; and `Level`
+  locates chunks of a regular grid arithmetically. `read_chunk_sizes` stays
+  authoritative for everything else.
+- Stream deep pyramids without re-reading their grids per chunk. Regular axes
+  built by `chunk_sizes_for` are recognized when handed back (for example as
+  `VirtualData.read_chunk_sizes`), so `normalize_chunk_sizes`,
+  `native_chunks_in_region` and `expand_region_to_chunk_grid` no longer walk
+  millions of sizes per call; new `axis_chunk_boundaries` gives one axis's
+  boundaries (cached for other grids). `fill_unloaded_chunks` takes optional
+  precomputed `boundaries`, which `VirtualData` and resident repair pass. At
+  23 levels the finest level streamed about 3 chunks/s; it now completes 893
+  chunks in about 11 s.
+- Represent huge regular axes compactly. Axes with more than 65,536 chunks
+  (`lodstone.grid.COMPACT_GRID_MIN_CHUNKS`, or the
+  `LODSTONE_COMPACT_GRID_MIN_CHUNKS` environment variable) get a
+  `RegularChunkSizes` and `RegularChunkBoundaries` computed on demand instead
+  of a tuple and an array; typical grids stay materialized, as before. Opening
+  the 26-level Mandelbulb in napari drops from 2,870 MiB peak memory and
+  0.87 s to 314 MiB and 0.10 s. Chunk queries go through new helpers
+  (`searchsorted`, `chunk_index_range`, `max_chunk_size`) that handle both
+  forms; on typical grids they cost under a microsecond more per call.
+  `chunk_boundaries`, `chunk_sizes_for` and `Level.chunk_sizes` may now
+  return the compact forms for such axes.
+
 ## 0.1.0a5 - 2026-11-24
 
 ### Datasets

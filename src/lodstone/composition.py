@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from itertools import product
+from typing import Any
 
 import numpy as np
 
-from .chunks import ChunkGrid
+from .chunks import ChunkGrid, axis_chunk_boundaries
+from .grid import chunk_index_range
 from .model import Region
 
 
@@ -83,12 +85,19 @@ def fill_unloaded_chunks(
     content_region: Region,
     chunk_grid: ChunkGrid,
     loaded: Collection[Region],
+    *,
+    boundaries: Sequence[Any] | None = None,
 ) -> tuple[Region, ...]:
     """Copy backdrop content into native chunks not present in ``loaded``.
 
     Both arrays are addressed in absolute level coordinates by their regions.
     Partial chunks at the edge of ``content_region`` are clipped consistently.
     The returned regions identify native chunks whose unloaded portion changed.
+
+    ``boundaries``, when given, are the grid's chunk boundary positions per
+    axis (as from ``chunk_boundaries``), saving their derivation from
+    ``chunk_grid``: for a deep pyramid's finest level that is millions of
+    sizes per axis, on every call.
     """
 
     ndim = destination_region.ndim
@@ -103,14 +112,14 @@ def fill_unloaded_chunks(
     if overlap is None:
         return ()
 
-    boundaries = [np.concatenate(([0], np.cumsum(axis))) for axis in chunk_grid]
+    if boundaries is None:
+        boundaries = [axis_chunk_boundaries(axis) for axis in chunk_grid]
+    elif len(boundaries) != ndim:
+        raise ValueError("boundaries must have one array per dimension")
     loaded_set = set(loaded)
 
     def chunk_range(axis: int, start: int, stop: int) -> range:
-        starts, stops = boundaries[axis][:-1], boundaries[axis][1:]
-        first = int(np.searchsorted(stops, start, side="right"))
-        last = int(np.searchsorted(starts, stop, side="left"))
-        return range(first, last)
+        return chunk_index_range(boundaries[axis], start, stop)
 
     # Index loaded regions by the native chunks they touch, so each chunk
     # tests only its own neighbours. Scanning every loaded region for every

@@ -6,6 +6,8 @@ from collections.abc import Sequence
 
 import numpy as np
 
+from .chunks import axis_chunk_boundaries
+from .grid import searchsorted
 from .model import Region
 
 
@@ -35,17 +37,12 @@ def expand_region_to_chunk_grid(
     start = []
     stop = []
     for axis, (axis_size, sizes) in enumerate(zip(shape, chunk_sizes, strict=True)):
-        normalized = np.asarray(tuple(int(value) for value in sizes), dtype=np.int64)
-        if normalized.size == 0 or np.any(normalized <= 0):
-            raise ValueError("native chunk sizes must be positive")
-        if int(np.sum(normalized)) != int(axis_size):
+        boundaries = axis_chunk_boundaries(sizes)
+        if int(boundaries[-1]) != int(axis_size):
             raise ValueError("native chunk sizes must sum to the array shape")
-        boundaries = np.concatenate(([0], np.cumsum(normalized)))
-        first = max(
-            int(np.searchsorted(boundaries, region.start[axis], side="right")) - 1, 0
-        )
+        first = max(searchsorted(boundaries, region.start[axis], "right") - 1, 0)
         last = min(
-            int(np.searchsorted(boundaries, region.stop[axis], side="left")),
+            searchsorted(boundaries, region.stop[axis], "left"),
             len(boundaries) - 1,
         )
         start.append(int(boundaries[first]))
@@ -72,17 +69,12 @@ def native_chunks_in_region(
         raise ValueError("region, shape, and chunk grid must have equal dimensionality")
     count = 1
     for axis, (axis_size, sizes) in enumerate(zip(shape, chunk_sizes, strict=True)):
-        normalized = np.asarray(tuple(int(value) for value in sizes), dtype=np.int64)
-        if normalized.size == 0 or np.any(normalized <= 0):
-            raise ValueError("native chunk sizes must be positive")
-        if int(np.sum(normalized)) != int(axis_size):
+        boundaries = axis_chunk_boundaries(sizes)
+        if int(boundaries[-1]) != int(axis_size):
             raise ValueError("native chunk sizes must sum to the array shape")
-        boundaries = np.concatenate(([0], np.cumsum(normalized)))
-        first = max(
-            int(np.searchsorted(boundaries, region.start[axis], side="right")) - 1, 0
-        )
+        first = max(searchsorted(boundaries, region.start[axis], "right") - 1, 0)
         last = max(
-            int(np.searchsorted(boundaries, region.stop[axis], side="left")),
+            searchsorted(boundaries, region.stop[axis], "left"),
             first + 1,
         )
         count *= last - first

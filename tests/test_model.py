@@ -59,3 +59,23 @@ def test_pyramid_rejects_mismatched_dimensions() -> None:
 def test_view_requires_exact_hidden_axis_selections() -> None:
     with pytest.raises(ValueError, match="exactly"):
         View((1, 2), (None, None, None), (100, 100), np.eye(4))
+
+
+def test_regular_level_locates_chunks_arithmetically() -> None:
+    # 2**30 chunks per axis: a list of them would not fit in memory
+    level = Level((2**35 + 5,), np.uint8, (32,), identity_transform(1))
+    last = 2**30
+    assert level.chunk_index(0, 2**35 + 4) == last
+    assert level.chunk_bounds(0, last) == (2**35, 2**35 + 5)
+    assert level.chunk_bounds(0, 3) == (96, 128)
+    with pytest.raises(IndexError):
+        level.chunk_bounds(0, last + 1)
+
+
+def test_regular_and_explicit_grids_locate_chunks_alike() -> None:
+    regular = Level((10,), np.uint8, (4,), identity_transform(1))
+    explicit = Level((10,), np.uint8, (4,), identity_transform(1), ((4, 4, 2),))
+    for coordinate in range(10):
+        assert regular.chunk_index(0, coordinate) == explicit.chunk_index(0, coordinate)
+    for index in range(3):
+        assert regular.chunk_bounds(0, index) == explicit.chunk_bounds(0, index)
