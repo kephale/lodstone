@@ -28,9 +28,9 @@ the central bud.
 ## Install
 
 ```bash
-pip install lodstone==0.1.0a6
-pip install "lodstone[ome-zarr]==0.1.0a6"  # remote image data
-pip install "lodstone[mesh]==0.1.0a6"      # Zarr Vectors meshes
+pip install lodstone==0.1.0a7
+pip install "lodstone[ome-zarr]==0.1.0a7"  # remote image data
+pip install "lodstone[mesh]==0.1.0a7"      # Zarr Vectors meshes
 ```
 
 Try the neuron viewer with
