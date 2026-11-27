@@ -9,6 +9,10 @@ The generative datasets (:func:`mandelbrot_dataset`,
 :func:`mandelbulb_dataset`) have no dependencies beyond zarr (numba is
 used when available). The remote datasets require optional extras noted in
 their docstrings and are imported lazily.
+
+:class:`~lodstone.datasets.mandelbulb_mesh.MandelbulbMeshSource` is the
+mesh counterpart: a generated multiscale Mandelbulb surface for mesh
+streams (reading it needs scikit-image).
 """
 
 from __future__ import annotations
@@ -28,6 +32,7 @@ from .generative import (
     MandelbrotStore,
     MandelbulbStore,
 )
+from .mandelbulb_mesh import MandelbulbMeshSource as MandelbulbMeshSource
 
 LOGGER = logging.getLogger(__name__)
 

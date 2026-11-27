@@ -55,6 +55,25 @@ blocking read to finish. Use `wait()` only off the GUI thread.
 [Zarr Vectors source](../src/lodstone/sources/zarr_vectors.py) ·
 [PyGFX target](../src/lodstone/adapters/pygfx_mesh.py)
 
+## Generated stress test
+
+`MandelbulbMeshSource` generates a multiscale Mandelbulb surface on demand,
+for testing streams deeper than prepared stores reach. At the default 8 levels
+its finest level lists about 220,000 chunks, roughly 366 million triangles in
+all; chunks are meshed when read. Listing errs toward keeping chunks, so about
+half of the finest turn out empty, which costs a read but no geometry. Reading needs scikit-image, and numba speeds
+up sampling when installed.
+
+```python
+from lodstone.datasets import MandelbulbMeshSource
+
+source = MandelbulbMeshSource(levels=8)
+stream = MeshStream(source, target, dispatch=run_on_viewer_thread)
+```
+
+Listing the chunks takes a few seconds at 8 levels and grows about fivefold per
+level.
+
 ## Limits
 
 - Raw 3-D triangles only. Draco, object filtering and mixed-LOD stitching are unsupported.
