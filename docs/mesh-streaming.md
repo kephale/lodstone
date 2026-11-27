@@ -59,8 +59,9 @@ blocking read to finish. Use `wait()` only off the GUI thread.
 
 `MandelbulbMeshSource` generates a multiscale Mandelbulb surface on demand,
 for testing streams deeper than prepared stores reach. At the default 8 levels
-its finest level lists about 175,000 chunks, roughly 366 million triangles in
-all; chunks are meshed when read. Reading needs scikit-image, and numba speeds
+its finest level lists about 220,000 chunks, roughly 366 million triangles in
+all; chunks are meshed when read. Listing errs toward keeping chunks, so about
+half of the finest turn out empty, which costs a read but no geometry. Reading needs scikit-image, and numba speeds
 up sampling when installed.
 
 ```python

@@ -78,6 +78,20 @@ def test_neighbours_share_their_boundary_vertices(source):
     assert pairs > 0
 
 
+def test_listing_misses_no_surface_chunk():
+    """Every finest chunk with surface is listed, including chunks whose
+    coarse ancestors probed entirely inside the thickened surface."""
+    source = MandelbulbMeshSource(5, tile=8)
+    listed = {chunk.key for chunk in source.levels[0].chunks}
+    side = 2 ** (len(source.levels) - 1)
+    missing = [
+        key
+        for key in np.ndindex(side, side, side)
+        if key not in listed and len(source.chunk_mesh(0, key).faces)
+    ]
+    assert missing == []
+
+
 def test_numpy_fallback_matches(monkeypatch):
     rng = np.random.default_rng(0)
     points = rng.uniform(-1.25, 1.25, (2000, 3))
@@ -89,13 +103,34 @@ def test_numpy_fallback_matches(monkeypatch):
 
     small = MandelbulbMeshSource(3, tile=6)
     key = small.levels[0].chunks[len(small.levels[0].chunks) // 2].key
+    fast_samples = small._samples(0, key)
     fast = small.chunk_mesh(0, key)
     monkeypatch.setattr(mandelbulb_mesh, "HAS_NUMBA", False)
+    np.testing.assert_allclose(
+        small._samples(0, key), fast_samples, rtol=1e-6, atol=1e-9
+    )
+    # a sample at the level set could round to either side, so compare
+    # the surfaces loosely
     slow = small.chunk_mesh(0, key)
-    np.testing.assert_array_equal(fast.faces, slow.faces)
-    np.testing.assert_allclose(fast.vertices, slow.vertices, atol=1e-5)
+    assert len(slow.faces) == pytest.approx(len(fast.faces), rel=0.02)
 
 
-def test_rejects_tiny_parameters():
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"levels": 0},
+        {"tile": 1},
+        {"probe": 1},
+        {"maxiter": 0},
+        {"radius": 0.0},
+        {"radius": -1.0},
+        {"offset": 0.0},
+    ],
+)
+def test_rejects_bad_parameters(kwargs):
     with pytest.raises(ValueError):
-        MandelbulbMeshSource(0)
+        MandelbulbMeshSource(**{"levels": 2, **kwargs})
+
+
+def test_float_levels_are_accepted():
+    assert len(MandelbulbMeshSource(2.0, tile=4).levels) == 2  # type: ignore[arg-type]

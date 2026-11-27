@@ -1,7 +1,7 @@
 """A generated multiscale Mandelbulb surface, for stress testing mesh streams.
 
 The surface is the level set ``DE = offset`` of the usual Mandelbulb
-distance estimate: the fractal thickened by about a finest voxel, which
+distance estimate: the fractal thickened by about two finest cells, which
 gives every level the same well-defined surface to approximate. Level ``k``
 (0 finest) splits the cube ``[-radius, radius]^3`` into ``2**(levels-1-k)``
 chunks per side; each chunk is marching-cubed from a ``(tile + 1)^3`` grid
@@ -10,9 +10,9 @@ boundary samples exactly and meet without cracks.
 
 Only chunks the surface may reach are listed. Candidates are the children
 of the chunks kept one level up; each is probed on a small grid, and kept
-when the probe crosses the surface or the distance estimate says the
-surface may pass between probe points. About 30% of listed chunks turn out
-empty, which costs a read but no geometry.
+unless the distance estimate shows the surface out of reach of every probe
+point or every probe point is in the set itself. Some listed chunks turn
+out empty, which costs a read but no geometry.
 
 Building the chunk lists costs a few seconds at 8 levels (about 175,000
 finest chunks, 366 million triangles in total at level 0); chunks are
@@ -46,6 +46,8 @@ except ModuleNotFoundError:  # pragma: no cover - exercised without numba
         return lambda func: func
 
 
+# candidates probed at once while listing chunks
+_PROBE_BATCH = 4096
 _CHILDREN = np.array(list(np.ndindex(2, 2, 2)), dtype=np.int64)
 
 
@@ -86,7 +88,7 @@ def _de_numpy(points: np.ndarray, maxiter: int, power: int) -> np.ndarray:
 
 if HAS_NUMBA:
 
-    @njit(nogil=True, fastmath=True, cache=True)
+    @njit(nogil=True, cache=True)
     def _de_one(px, py, pz, maxiter, power):  # pragma: no cover - jitted
         x, y, z = px, py, pz
         dr = 1.0
@@ -107,19 +109,21 @@ if HAS_NUMBA:
             z = zr * math.cos(theta) + pz
         return 0.0
 
-    @njit(parallel=True, nogil=True, fastmath=True, cache=True)
+    @njit(parallel=True, nogil=True, cache=True)
     def _de_points_numba(points, maxiter, power):  # pragma: no cover
         out = np.empty(points.shape[0])
         for i in prange(points.shape[0]):
             out[i] = _de_one(points[i, 0], points[i, 1], points[i, 2], maxiter, power)
         return out
 
-    @njit(parallel=True, nogil=True, fastmath=True, cache=True)
+    # serial: reads already run concurrently in worker threads, and numba's
+    # default threading layer aborts on concurrent parallel launches
+    @njit(nogil=True, cache=True)
     def _de_lattice_numba(
         origin, n, step, low, maxiter, power
     ):  # pragma: no cover - jitted
         out = np.empty((n, n, n))
-        for i in prange(n):
+        for i in range(n):
             x = low + (origin[0] + i) * step
             for j in range(n):
                 y = low + (origin[1] + j) * step
@@ -135,6 +139,8 @@ def distance_estimate(
     """Mandelbulb distance estimates for ``(n, 3)`` XYZ points.
 
     Zero for points that do not escape within ``maxiter`` iterations.
+    With numba this runs a parallel kernel; call it from one thread at a
+    time.
     """
 
     points = np.ascontiguousarray(points, dtype=np.float64).reshape(-1, 3)
@@ -182,15 +188,18 @@ class MandelbulbMeshSource:
         offset: float | None = None,
         probe: int = 5,
     ) -> None:
-        if levels < 1 or tile < 2 or probe < 2:
-            raise ValueError("levels, tile and probe are too small")
-        self.tile = int(tile)
+        levels, tile, probe = int(levels), int(tile), int(probe)
+        if levels < 1 or tile < 2 or probe < 2 or maxiter < 1:
+            raise ValueError("levels, tile, probe and maxiter are too small")
+        if not radius > 0 or (offset is not None and not offset > 0):
+            raise ValueError("radius and offset must be positive")
+        self.tile = tile
         self.maxiter = int(maxiter)
         self.power = int(power)
         self.radius = float(radius)
         finest = 2 * self.radius / (self.tile * 2 ** (levels - 1))
         self.offset = 2.0 * finest if offset is None else float(offset)
-        keys = self._list_chunks(int(levels), int(probe))
+        keys = self._list_chunks(levels, probe)
         built = []
         for level in range(levels):
             span = self._span(level, levels)
@@ -227,16 +236,25 @@ class MandelbulbMeshSource:
         for level in range(levels - 2, -1, -1):
             candidates = (keys[:, None, :] * 2 + _CHILDREN[None]).reshape(-1, 3)
             span = self._span(level, levels)
-            points = -self.radius + (candidates[:, None, :] + offsets) * span
-            field = (
-                distance_estimate(points.reshape(-1, 3), self.maxiter, self.power)
-                - self.offset
-            ).reshape(len(candidates), -1)
             # the surface may pass between probe points up to half a probe
             # diagonal from the nearest one; the estimate is approximate,
             # so allow half again
             reach = 1.5 * span / (probe - 1) * math.sqrt(3) / 2
-            keep = (field.min(axis=1) <= reach) & (field.max(axis=1) >= 0)
+            keep = np.empty(len(candidates), dtype=bool)
+            # bounded batches: all candidates' probes at once would take GBs
+            for start in range(0, len(candidates), _PROBE_BATCH):
+                batch = candidates[start : start + _PROBE_BATCH]
+                points = -self.radius + (batch[:, None, :] + offsets) * span
+                estimate = distance_estimate(
+                    points.reshape(-1, 3), self.maxiter, self.power
+                ).reshape(len(batch), -1)
+                # Points in the set carry no distance, so a candidate is
+                # dropped as interior only when every probe is in the set;
+                # one inside the thickened surface but outside the set
+                # (0 < DE < offset) is near the surface.
+                keep[start : start + len(batch)] = (
+                    estimate.min(axis=1) - self.offset <= reach
+                ) & (estimate.max(axis=1) > 0)
             keys = candidates[keep]
             listed[level] = keys
         return listed
@@ -265,7 +283,9 @@ class MandelbulbMeshSource:
         measure = import_module("skimage.measure")
         # lattice-index vertices, so a shared face interpolates identically
         # from both sides
-        vertices, faces, _, _ = measure.marching_cubes(field, 0.0)
+        vertices, faces, _, _ = measure.marching_cubes(
+            field, 0.0, allow_degenerate=False
+        )
         step = self._span(level) / self.tile
         origin = np.asarray(key, dtype=np.float64) * self.tile
         vertices = -self.radius + (vertices + origin) * step
